@@ -53,7 +53,7 @@ import { SEED_RECORDS } from './data/seedInvoicesData';
 
 const DEFAULT_EMPRESA: EmpresaConfig = {
   name: 'Neo Energia',
-  companyName: 'NEO ENERGIA CARNAÚBANOS (GRUPO DE INVETIMENTOS CARNAÚBANOS)',
+  companyName: 'NEO ENERGIA CARNAÚBANOS (GRUPO DE INVESTIMENTOS CARNAÚBANOS)',
   cnpj: '52.184.920/0001-44',
   groupName: 'GRUPO DE INVESTIMENTOS CARNAÚBANOS',
   address: 'Rodovia BA-415, KM 12',
@@ -223,7 +223,17 @@ function MainApp() {
       doc(db, 'empresa', 'info'),
       (snap) => {
         if (snap.exists()) {
-          setEmpresa(snap.data() as EmpresaConfig);
+          const rawEmpresa = snap.data() as EmpresaConfig;
+          if (rawEmpresa.companyName && rawEmpresa.companyName.includes('INVETIMENTOS')) {
+            const corrected: EmpresaConfig = {
+              ...rawEmpresa,
+              companyName: rawEmpresa.companyName.replace(/INVETIMENTOS/gi, 'INVESTIMENTOS'),
+            };
+            setEmpresa(corrected);
+            setDoc(doc(db, 'empresa', 'info'), corrected, { merge: true }).catch(() => {});
+          } else {
+            setEmpresa(rawEmpresa);
+          }
         } else {
           setDoc(doc(db, 'empresa', 'info'), DEFAULT_EMPRESA);
         }
