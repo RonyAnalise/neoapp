@@ -1,0 +1,258 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile with role-based access control (admin or operator).",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "name": { "type": "string", "maxLength": 100 },
+        "email": { "type": "string", "maxLength": 150 },
+        "role": { "type": "string", "enum": ["admin", "operator"] },
+        "active": { "type": "boolean" },
+        "createdAt": { "type": "string" },
+        "lastLoginAt": { "type": "string" }
+      },
+      "required": ["uid", "name", "email", "role", "active", "createdAt"]
+    },
+    "Cliente": {
+      "title": "Cliente",
+      "description": "Dados cadastrais completos do cliente consumidor de energia.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string", "maxLength": 150 },
+        "cpfCnpj": { "type": "string", "maxLength": 30 },
+        "phone": { "type": "string", "maxLength": 30 },
+        "whatsapp": { "type": "string", "maxLength": 30 },
+        "email": { "type": "string", "maxLength": 150 },
+        "cep": { "type": "string", "maxLength": 20 },
+        "address": { "type": "string", "maxLength": 200 },
+        "number": { "type": "string", "maxLength": 30 },
+        "complement": { "type": "string", "maxLength": 100 },
+        "neighborhood": { "type": "string", "maxLength": 100 },
+        "city": { "type": "string", "maxLength": 100 },
+        "state": { "type": "string", "maxLength": 10 },
+        "clientCodeCoelba": { "type": "string", "maxLength": 50 },
+        "consumerUnit": { "type": "string", "maxLength": 50 },
+        "customNeoTariff": { "type": "number" },
+        "customCoelbaTariff": { "type": "number" },
+        "status": { "type": "string", "enum": ["active", "inactive"] },
+        "notes": { "type": "string", "maxLength": 500 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["name", "cpfCnpj", "status", "createdAt"]
+    },
+    "Empresa": {
+      "title": "Empresa",
+      "description": "Configurações institucionais da Neo Energia utilizadas na fatura.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "maxLength": 100 },
+        "companyName": { "type": "string", "maxLength": 150 },
+        "cnpj": { "type": "string", "maxLength": 30 },
+        "logoUrl": { "type": "string" },
+        "groupName": { "type": "string", "maxLength": 150 },
+        "address": { "type": "string", "maxLength": 200 },
+        "cep": { "type": "string", "maxLength": 20 },
+        "city": { "type": "string", "maxLength": 100 },
+        "state": { "type": "string", "maxLength": 10 },
+        "phone": { "type": "string", "maxLength": 30 },
+        "whatsapp": { "type": "string", "maxLength": 30 },
+        "email": { "type": "string", "maxLength": 150 },
+        "warningPaymentText": { "type": "string", "maxLength": 200 },
+        "paymentDueDays": { "type": "number" },
+        "sustainabilityMessage": { "type": "string", "maxLength": 200 },
+        "transparencyDiscountText": { "type": "string", "maxLength": 500 },
+        "paymentInstructions": { "type": "string", "maxLength": 300 },
+        "additionalInfo": { "type": "string", "maxLength": 500 }
+      },
+      "required": ["name", "phone", "whatsapp"]
+    },
+    "Configuracoes": {
+      "title": "Configuracoes",
+      "description": "Tarifas vigentes e parâmetros gerais de cálculo da energia.",
+      "type": "object",
+      "properties": {
+        "neoTariff": { "type": "number" },
+        "coelbaReferenceTariff": { "type": "number" },
+        "updatedAt": { "type": "string" },
+        "updatedBy": { "type": "string" }
+      },
+      "required": ["neoTariff", "coelbaReferenceTariff"]
+    },
+    "HistoricoTarifa": {
+      "title": "HistoricoTarifa",
+      "description": "Registro histórico com validade das tarifas cadastradas.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "neoTariff": { "type": "number" },
+        "coelbaReferenceTariff": { "type": "number" },
+        "validFrom": { "type": "string" },
+        "validTo": { "type": "string" },
+        "notes": { "type": "string", "maxLength": 300 },
+        "createdBy": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["neoTariff", "coelbaReferenceTariff", "validFrom", "createdAt"]
+    },
+    "Leitura": {
+      "title": "Leitura",
+      "description": "Leituras acumuladas do medidor de energia para cada período.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "clientId": { "type": "string" },
+        "meterId": { "type": "string", "maxLength": 50 },
+        "previousReadingDate": { "type": "string" },
+        "previousReadingValue": { "type": "number" },
+        "currentReadingDate": { "type": "string" },
+        "currentReadingValue": { "type": "number" },
+        "calculatedConsumption": { "type": "number" },
+        "referenceMonth": { "type": "number" },
+        "referenceYear": { "type": "number" },
+        "invoiceId": { "type": "string" },
+        "status": { "type": "string", "enum": ["valid", "cancelled", "meter_swap"] },
+        "createdBy": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["clientId", "previousReadingValue", "currentReadingValue", "calculatedConsumption", "referenceMonth", "referenceYear", "status", "createdAt"]
+    },
+    "Fatura": {
+      "title": "Fatura",
+      "description": "Fatura gerada com cálculos de consumo, economia e boleto.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "invoiceNumber": { "type": "string", "maxLength": 50 },
+        "clientId": { "type": "string" },
+        "referenceMonth": { "type": "number" },
+        "referenceYear": { "type": "number" },
+        "previousReading": { "type": "number" },
+        "previousReadingDate": { "type": "string" },
+        "currentReading": { "type": "number" },
+        "currentReadingDate": { "type": "string" },
+        "consumptionKwh": { "type": "number" },
+        "appliedNeoTariff": { "type": "number" },
+        "appliedCoelbaTariff": { "type": "number" },
+        "neoAmount": { "type": "number" },
+        "coelbaEstimateAmount": { "type": "number" },
+        "savingsAmount": { "type": "number" },
+        "savingsPercentage": { "type": "number" },
+        "totalToPay": { "type": "number" },
+        "issueDate": { "type": "string" },
+        "dueDate": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "paid", "overdue", "cancelled"] },
+        "notes": { "type": "string", "maxLength": 500 },
+        "boletoBase64": { "type": "string" },
+        "boletoStoragePath": { "type": "string" },
+        "boletoFileName": { "type": "string" },
+        "boletoUploadedAt": { "type": "string" },
+        "paymentPendingDeletion": { "type": "boolean" },
+        "createdAt": { "type": "string" },
+        "createdBy": { "type": "string" }
+      },
+      "required": ["clientId", "invoiceNumber", "referenceMonth", "referenceYear", "consumptionKwh", "totalToPay", "dueDate", "status", "createdAt"]
+    },
+    "Pagamento": {
+      "title": "Pagamento",
+      "description": "Registro de pagamento de faturas e confirmação.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "invoiceId": { "type": "string" },
+        "amountPaid": { "type": "number" },
+        "paymentDate": { "type": "string" },
+        "confirmationMethod": { "type": "string", "enum": ["manual", "gateway", "integration"] },
+        "confirmedBy": { "type": "string" },
+        "status": { "type": "string", "enum": ["confirmed", "reversed"] },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["invoiceId", "amountPaid", "paymentDate", "status", "createdAt"]
+    },
+    "Auditoria": {
+      "title": "Auditoria",
+      "description": "Registro de auditoria de operações críticas e financeiras.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "operationType": { "type": "string" },
+        "relatedDocument": { "type": "string" },
+        "collectionName": { "type": "string" },
+        "user": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "justification": { "type": "string", "maxLength": 500 }
+      },
+      "required": ["operationType", "collectionName", "user", "timestamp"]
+    },
+    "TaxaCoelba": {
+      "title": "TaxaCoelba",
+      "description": "Comprovantes de taxas quitadas da concessionária Coelba.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "clientId": { "type": "string" },
+        "clientName": { "type": "string", "maxLength": 150 },
+        "clientCodeCoelba": { "type": "string", "maxLength": 50 },
+        "data": { "type": "string" },
+        "valor": { "type": "number" },
+        "descricao": { "type": "string", "maxLength": 200 },
+        "comprovanteBase64": { "type": "string" },
+        "comprovanteFileName": { "type": "string", "maxLength": 200 },
+        "comprovanteFileType": { "type": "string", "maxLength": 50 },
+        "status": { "type": "string", "enum": ["quitada"] },
+        "createdAt": { "type": "string" },
+        "createdBy": { "type": "string" }
+      },
+      "required": ["clientId", "clientName", "clientCodeCoelba", "data", "comprovanteBase64", "status", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "Perfis de usuários administradores e operadores."
+    },
+    "/admins/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "Mapeamento seguro de administradores do sistema."
+    },
+    "/clientes/{clienteId}": {
+      "schema": { "$ref": "#/entities/Cliente" },
+      "description": "Clientes consumidores cadastrados."
+    },
+    "/empresa/{empresaId}": {
+      "schema": { "$ref": "#/entities/Empresa" },
+      "description": "Dados da empresa Neo Energia e textos padrão."
+    },
+    "/configuracoes/{configId}": {
+      "schema": { "$ref": "#/entities/Configuracoes" },
+      "description": "Configurações e tarifas do sistema."
+    },
+    "/historico_tarifas/{tarifaId}": {
+      "schema": { "$ref": "#/entities/HistoricoTarifa" },
+      "description": "Histórico de vigência das tarifas."
+    },
+    "/leituras/{leituraId}": {
+      "schema": { "$ref": "#/entities/Leitura" },
+      "description": "Leituras de medidor registradas."
+    },
+    "/faturas/{faturaId}": {
+      "schema": { "$ref": "#/entities/Fatura" },
+      "description": "Faturas de energia geradas."
+    },
+    "/pagamentos/{pagamentoId}": {
+      "schema": { "$ref": "#/entities/Pagamento" },
+      "description": "Histórico de pagamentos efetuados."
+    },
+    "/auditoria/{auditoriaId}": {
+      "schema": { "$ref": "#/entities/Auditoria" },
+      "description": "Trilha de auditoria das ações no sistema."
+    },
+    "/taxas_coelba/{taxaId}": {
+      "schema": { "$ref": "#/entities/TaxaCoelba" },
+      "description": "Comprovantes de taxas quitadas da concessionária Coelba."
+    }
+  }
+}

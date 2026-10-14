@@ -1,0 +1,6 @@
+{
+  "name": "NeoApp — Gestão de Energia e Faturas",
+  "description": "Sistema completo de gestão de clientes, leituras de medidores, cálculo automático de economia e faturamento para a Neo Energia.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
