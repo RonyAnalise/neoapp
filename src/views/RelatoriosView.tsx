@@ -505,17 +505,17 @@ export const RelatoriosView: React.FC<RelatoriosViewProps> = ({
       {/* Report Data Table */}
       <div className="bg-white rounded-2xl border border-gray-200/80 shadow-xs overflow-hidden print:border print:border-gray-300 print:shadow-none print:rounded-none">
         {reportType === 'clientes_status' ? (
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto lg:overflow-x-visible">
             <table className="w-full text-left text-xs">
-              <thead className="bg-gray-50 border-b border-gray-200 text-gray-600 font-bold uppercase text-[10px] print:bg-gray-100">
+              <thead className="bg-gray-50 border-b border-gray-200 text-gray-600 font-bold uppercase text-[10px] tracking-wider print:bg-gray-100">
                 <tr>
-                  <th className="py-3 px-4">Nome do Cliente</th>
-                  <th className="py-3 px-4">CPF / CNPJ</th>
-                  <th className="py-3 px-4">Cód. Coelba</th>
-                  <th className="py-3 px-4">Medidor</th>
-                  <th className="py-3 px-4">Cidade</th>
-                  <th className="py-3 px-4">Telefone</th>
-                  <th className="py-3 px-4 text-center">Situação</th>
+                  <th className="py-2.5 px-3">Nome do Cliente</th>
+                  <th className="py-2.5 px-2">CPF / CNPJ</th>
+                  <th className="py-2.5 px-2">Cód. Coelba</th>
+                  <th className="py-2.5 px-2">Medidor</th>
+                  <th className="py-2.5 px-2">Cidade</th>
+                  <th className="py-2.5 px-2">Telefone</th>
+                  <th className="py-2.5 px-3 text-center">Situação</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -530,21 +530,21 @@ export const RelatoriosView: React.FC<RelatoriosViewProps> = ({
                 ) : (
                   relevantClients.map((c) => (
                     <tr key={c.id} className="hover:bg-gray-50/60 print:hover:bg-transparent">
-                      <td className="py-2.5 px-4 font-bold text-gray-900">{c.name}</td>
-                      <td className="py-2.5 px-4 font-mono font-medium">{c.cpfCnpj}</td>
-                      <td className="py-2.5 px-4 font-mono font-semibold text-emerald-800">
+                      <td className="py-2 px-3 font-bold text-gray-900">{c.name}</td>
+                      <td className="py-2 px-2 font-mono font-medium">{c.cpfCnpj}</td>
+                      <td className="py-2 px-2 font-mono font-semibold text-emerald-800">
                         {c.clientCodeCoelba || '-'}
                       </td>
-                      <td className="py-2.5 px-4 font-mono text-gray-600">
+                      <td className="py-2 px-2 font-mono text-gray-600">
                         {c.meterNumber || '-'}
                       </td>
-                      <td className="py-2.5 px-4 text-gray-700">
+                      <td className="py-2 px-2 text-gray-700">
                         {c.city ? `${c.city}${c.state ? ` - ${c.state}` : ''}` : '-'}
                       </td>
-                      <td className="py-2.5 px-4">{c.whatsapp || c.phone || '-'}</td>
-                      <td className="py-2.5 px-4 text-center">
+                      <td className="py-2 px-2">{c.whatsapp || c.phone || '-'}</td>
+                      <td className="py-2 px-3 text-center">
                         <span
-                          className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${
                             c.status === 'active'
                               ? 'bg-emerald-100 text-emerald-800'
                               : 'bg-gray-200 text-gray-600'
@@ -559,10 +559,10 @@ export const RelatoriosView: React.FC<RelatoriosViewProps> = ({
               </tbody>
               <tfoot className="bg-gray-100 font-bold border-t-2 border-gray-300 text-gray-900 print:bg-gray-50">
                 <tr>
-                  <td className="py-3 px-4 font-black uppercase" colSpan={3}>
+                  <td className="py-2.5 px-3 font-black uppercase" colSpan={3}>
                     TOTAL DE CLIENTES: {relevantClients.length}
                   </td>
-                  <td className="py-3 px-4" colSpan={4}>
+                  <td className="py-2.5 px-2" colSpan={4}>
                     {relevantClients.filter((c) => c.status === 'active').length} Ativos /{' '}
                     {relevantClients.filter((c) => c.status === 'inactive').length} Inativos
                   </td>
@@ -571,28 +571,26 @@ export const RelatoriosView: React.FC<RelatoriosViewProps> = ({
             </table>
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto lg:overflow-x-visible">
             <table className="w-full text-left text-xs">
-              <thead className="bg-gray-50 border-b border-gray-200 text-gray-600 font-bold uppercase text-[10px] print:bg-gray-100">
+              <thead className="bg-gray-50 border-b border-gray-200 text-gray-600 font-bold uppercase text-[10px] tracking-wider print:bg-gray-100">
                 <tr>
-                  <th className="py-3 px-4">Fatura</th>
-                  <th className="py-3 px-4">Cliente</th>
-                  <th className="py-3 px-4">CPF / CNPJ</th>
-                  <th className="py-3 px-4">Cód. Coelba</th>
-                  <th className="py-3 px-4">Cidade</th>
-                  <th className="py-3 px-4">Competência</th>
-                  <th className="py-3 px-4 text-right">Consumo</th>
-                  <th className="py-3 px-4 text-right">Neo Energia</th>
-                  <th className="py-3 px-4 text-right">Ref. Coelba</th>
-                  <th className="py-3 px-4 text-right">Economia</th>
-                  <th className="py-3 px-4 text-center">Vencimento</th>
-                  <th className="py-3 px-4 text-center">Status</th>
+                  <th className="py-2.5 px-3">Cliente</th>
+                  <th className="py-2.5 px-2">Cód. Coelba</th>
+                  <th className="py-2.5 px-2">Cidade</th>
+                  <th className="py-2.5 px-2 text-center">Competência</th>
+                  <th className="py-2.5 px-2 text-right">Consumo</th>
+                  <th className="py-2.5 px-2 text-right">Neo Energia</th>
+                  <th className="py-2.5 px-2 text-right">Ref. Coelba</th>
+                  <th className="py-2.5 px-2 text-right">Economia</th>
+                  <th className="py-2.5 px-2 text-center">Vencimento</th>
+                  <th className="py-2.5 px-3 text-center">Status</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {relevantInvoices.length === 0 ? (
                   <tr>
-                    <td colSpan={12} className="py-12 text-center text-gray-400">
+                    <td colSpan={10} className="py-12 text-center text-gray-400">
                       {searchTerm
                         ? `Nenhum registro encontrado para a busca "${searchTerm}" com os filtros atuais.`
                         : 'Nenhum registro encontrado para este relatório (faturas canceladas são excluídas).'}
@@ -601,40 +599,36 @@ export const RelatoriosView: React.FC<RelatoriosViewProps> = ({
                 ) : (
                   relevantInvoices.map((f) => (
                     <tr key={f.id} className="hover:bg-gray-50/60 print:hover:bg-transparent">
-                      <td className="py-2.5 px-4 font-mono font-bold text-gray-900 whitespace-nowrap">
-                        #{f.invoiceNumber}
+                      <td className="py-2 px-3 font-bold text-gray-900">
+                        {f.clientName}
                       </td>
-                      <td className="py-2.5 px-4 font-bold text-gray-900">{f.clientName}</td>
-                      <td className="py-2.5 px-4 font-mono font-medium text-gray-700 whitespace-nowrap">
-                        {getClientCpfCnpj(f)}
-                      </td>
-                      <td className="py-2.5 px-4 font-mono font-semibold text-emerald-800 whitespace-nowrap">
+                      <td className="py-2 px-2 font-mono font-semibold text-emerald-800 whitespace-nowrap">
                         {getClientCodeCoelba(f)}
                       </td>
-                      <td className="py-2.5 px-4 text-gray-700 whitespace-nowrap">
+                      <td className="py-2 px-2 text-gray-700 whitespace-nowrap">
                         {getClientCity(f)}
                       </td>
-                      <td className="py-2.5 px-4 font-medium whitespace-nowrap">
+                      <td className="py-2 px-2 text-center font-medium whitespace-nowrap">
                         {formatReferencePeriod(f.referenceMonth, f.referenceYear)}
                       </td>
-                      <td className="py-2.5 px-4 text-right whitespace-nowrap">
+                      <td className="py-2 px-2 text-right whitespace-nowrap">
                         {formatNumberBr(f.consumptionKwh)} kWh
                       </td>
-                      <td className="py-2.5 px-4 text-right font-bold text-emerald-800 whitespace-nowrap">
+                      <td className="py-2 px-2 text-right font-bold text-emerald-800 whitespace-nowrap">
                         {formatCurrency(f.totalToPay)}
                       </td>
-                      <td className="py-2.5 px-4 text-right text-gray-700 whitespace-nowrap">
+                      <td className="py-2 px-2 text-right text-gray-700 whitespace-nowrap">
                         {formatCurrency(f.coelbaEstimateAmount)}
                       </td>
-                      <td className="py-2.5 px-4 text-right font-bold text-orange-600 whitespace-nowrap">
+                      <td className="py-2 px-2 text-right font-bold text-orange-600 whitespace-nowrap">
                         {formatCurrency(f.savingsAmount)}
                       </td>
-                      <td className="py-2.5 px-4 text-center text-gray-600 whitespace-nowrap">
+                      <td className="py-2 px-2 text-center text-gray-600 whitespace-nowrap">
                         {formatDateBr(f.dueDate)}
                       </td>
-                      <td className="py-2.5 px-4 text-center whitespace-nowrap">
+                      <td className="py-2 px-3 text-center whitespace-nowrap">
                         <span
-                          className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${
                             f.status === 'paid'
                               ? 'bg-emerald-100 text-emerald-800'
                               : f.status === 'overdue'
@@ -658,22 +652,22 @@ export const RelatoriosView: React.FC<RelatoriosViewProps> = ({
               {relevantInvoices.length > 0 && (
                 <tfoot className="bg-gray-100 font-bold border-t-2 border-gray-300 text-gray-900 print:bg-gray-50">
                   <tr>
-                    <td className="py-3 px-4 font-black uppercase text-gray-900" colSpan={6}>
+                    <td className="py-2.5 px-3 font-black uppercase text-gray-900" colSpan={4}>
                       TOTAL GERAL ({totalCount} {totalCount === 1 ? 'fatura' : 'faturas'})
                     </td>
-                    <td className="py-3 px-4 text-right font-black text-gray-900 whitespace-nowrap">
+                    <td className="py-2.5 px-2 text-right font-black text-gray-900 whitespace-nowrap">
                       {formatNumberBr(totalConsumo)} kWh
                     </td>
-                    <td className="py-3 px-4 text-right font-black text-emerald-800 whitespace-nowrap">
+                    <td className="py-2.5 px-2 text-right font-black text-emerald-800 whitespace-nowrap">
                       {formatCurrency(totalNeo)}
                     </td>
-                    <td className="py-3 px-4 text-right font-black text-gray-800 whitespace-nowrap">
+                    <td className="py-2.5 px-2 text-right font-black text-gray-800 whitespace-nowrap">
                       {formatCurrency(totalCoelba)}
                     </td>
-                    <td className="py-3 px-4 text-right font-black text-orange-600 whitespace-nowrap">
+                    <td className="py-2.5 px-2 text-right font-black text-orange-600 whitespace-nowrap">
                       {formatCurrency(totalEconomia)}
                     </td>
-                    <td className="py-3 px-4 text-center text-gray-400" colSpan={2}>
+                    <td className="py-2.5 px-2 text-center text-gray-400" colSpan={2}>
                       -
                     </td>
                   </tr>
