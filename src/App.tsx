@@ -633,7 +633,7 @@ function MainApp() {
     : null;
 
   return (
-    <div className="flex min-h-screen bg-gray-100/90 font-sans antialiased text-gray-900">
+    <div className="flex min-h-screen lg:h-screen lg:overflow-hidden bg-gray-100/90 font-sans antialiased text-gray-900">
       {/* Sidebar Navigation */}
       <Sidebar
         activeTab={activeTab}
@@ -643,14 +643,14 @@ function MainApp() {
       />
 
       {/* Main Content Area */}
-      <div className="flex flex-1 flex-col min-w-0">
+      <div className="flex flex-1 flex-col min-w-0 lg:h-screen lg:overflow-y-auto">
         <Header
           title={headerInfo.title}
           subtitle={headerInfo.subtitle}
           onOpenMobileMenu={() => setMobileMenuOpen(true)}
         />
 
-        <main className="flex-1 p-4 sm:p-8 overflow-y-auto">
+        <main className="flex-1 p-4 sm:p-8">
           {/* Banner de Sincronização e Feedback de Faturas das Imagens */}
           {(clientes.length < 38 || syncStatus !== 'idle') && (
             <div
