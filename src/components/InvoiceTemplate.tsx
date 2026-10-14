@@ -51,7 +51,9 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
 
   const phoneDisplay = empresa.phone || '77-992107440';
   const warningText = empresa.warningPaymentText || `TEM ${empresa.paymentDueDays || 15} DIAS PARA EFETUAR O PAGAMENTO.`;
-  const companyTitle = empresa.companyName || 'NEO ENERGIA CARNAÚBANOS (GRUPO DE INVETIMENTOS CARNAÚBANOS)';
+  const companyTitle = (
+    empresa.companyName || 'NEO ENERGIA CARNAÚBANOS (GRUPO DE INVESTIMENTOS CARNAÚBANOS)'
+  ).replace(/INVETIMENTOS/gi, 'INVESTIMENTOS');
 
   return (
     <div
