@@ -323,8 +323,9 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
     setTimeout(() => setCopiedSuccess(false), 3000);
   };
 
-  const companyTitle =
-    empresa.companyName || 'NEO ENERGIA CARNAÚBANOS (GRUPO DE INVESTIMENTOS CARNAÚBANOS)';
+  const companyTitle = (
+    empresa.companyName || 'NEO ENERGIA CARNAÚBANOS (GRUPO DE INVESTIMENTOS CARNAÚBANOS)'
+  ).replace(/INVETIMENTOS/gi, 'INVESTIMENTOS');
   const phoneDisplay = empresa.phone || empresa.whatsapp || '77-992107440';
   const warningText =
     empresa.warningPaymentText ||
