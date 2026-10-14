@@ -193,21 +193,33 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
     );
   };
 
-  // 1. Ação: Imprimir via Navegador
+  // 1. Ação: Imprimir via Navegador (Garante que comece do topo da página e caiba em 1 folha A4)
   const handlePrint = () => {
-    window.print();
+    window.scrollTo(0, 0);
+    const scrollContainer = document.querySelector('.overflow-y-auto');
+    if (scrollContainer) {
+      scrollContainer.scrollTop = 0;
+    }
+    setTimeout(() => {
+      window.print();
+    }, 150);
   };
 
-  // 2. Ação: Baixar em PDF
+  // 2. Ação: Baixar em PDF (Garante escala proporcional e ajuste em 1 página)
   const handleDownloadPdf = async () => {
     if (!invoicePrintRef.current) return;
     setIsGeneratingPdf(true);
+    setLastActionStatus('Gerando arquivo PDF da fatura...');
     try {
-      await generateInvoicePdf(invoicePrintRef.current, `Orcamento_${clientName.replace(/\s+/g, '_')}`);
-      setLastActionStatus('PDF gerado e baixado com sucesso!');
+      await generateInvoicePdf(
+        invoicePrintRef.current,
+        `Orcamento_${clientName.replace(/\s+/g, '_')}`
+      );
+      setLastActionStatus('PDF do orçamento gerado e baixado com sucesso!');
       setTimeout(() => setLastActionStatus(''), 4000);
     } catch (err) {
-      alert('Erro ao gerar PDF: ' + (err instanceof Error ? err.message : String(err)));
+      console.error('Erro ao gerar PDF:', err);
+      setLastActionStatus('Não foi possível gerar o PDF. Verifique se a fatura está visível na tela.');
     } finally {
       setIsGeneratingPdf(false);
     }
@@ -218,12 +230,15 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
     if (!invoicePrintRef.current) return null;
     setIsGeneratingImage(true);
     try {
-      const canvas = await html2canvas(invoicePrintRef.current, {
+      const element = invoicePrintRef.current;
+      const canvas = await html2canvas(element, {
         scale: 2, // 2x alta resolução
         useCORS: true,
+        allowTaint: true,
         logging: false,
-        backgroundColor: '#059669',
-        windowWidth: 1100,
+        backgroundColor: '#1b7a3e',
+        scrollX: 0,
+        scrollY: 0,
       });
 
       const dataUrl = canvas.toDataURL('image/png');
@@ -236,7 +251,7 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
       return { blob, dataUrl };
     } catch (err) {
       console.error('Erro ao capturar print da fatura:', err);
-      alert('Erro ao gerar imagem print da fatura.');
+      setLastActionStatus('Atenção: Não foi possível capturar a imagem.');
       return null;
     } finally {
       setIsGeneratingImage(false);
@@ -245,6 +260,7 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
 
   // 4. Ação: Baixar apenas a imagem PNG (print)
   const handleDownloadImage = async () => {
+    setLastActionStatus('Gerando print em imagem...');
     const result = await captureInvoiceImage();
     if (!result) return;
     const a = document.createElement('a');
@@ -270,9 +286,11 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
   const handleSendWhatsapp = async () => {
     const cleanPhone = phoneForZap.replace(/\D/g, '');
     if (!cleanPhone || cleanPhone.length < 10) {
-      alert('Por favor, informe um número de WhatsApp válido com DDD (ex: 73999998888).');
+      setLastActionStatus('Atenção: Digite o WhatsApp com DDD (ex: 73999998888).');
       return;
     }
+
+    setLastActionStatus('Gerando print e preparando WhatsApp...');
 
     // 1. Gera ou recupera o print da imagem
     let dataUrl = imageCapturedUrl;
@@ -312,8 +330,16 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
     const msg = generateWhatsAppMessage();
     const zapUrl = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(msg)}`;
 
-    window.open(zapUrl, '_blank');
-    setLastActionStatus('Print gerado e WhatsApp aberto!');
+    // Disparo seguro via link direto (evita bloqueio de pop-up do navegador)
+    const link = document.createElement('a');
+    link.href = zapUrl;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    setLastActionStatus('Print baixado e WhatsApp aberto!');
     setTimeout(() => setLastActionStatus(''), 5000);
   };
 
@@ -333,75 +359,73 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* Top Banner de Apresentação */}
-      <div className="bg-gradient-to-r from-emerald-900 via-green-900 to-emerald-950 text-white rounded-2xl p-5 sm:p-6 shadow-sm border border-emerald-700 no-print">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-amber-400 to-yellow-300 text-emerald-950 flex items-center justify-center shadow-md shrink-0">
-              <Calculator className="w-6 h-6 stroke-[2.5]" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">
-                  Simulador de Orçamento & Proposta
-                </h2>
-                <span className="bg-amber-400 text-emerald-950 text-[10px] font-black px-2 py-0.5 rounded-full uppercase">
-                  Vendas
-                </span>
-              </div>
-              <p className="text-xs sm:text-sm text-emerald-200/90 mt-0.5">
-                Informe o consumo, o valor da Coelba e o valor Neo Energia para gerar na hora a fatura
-                de exemplo com destaque da economia em <strong>R$</strong> e em{' '}
-                <strong>percentual (%)</strong>.
-              </p>
-            </div>
+      {/* Barra Superior Compacta de Ações e Status (Substitui o quadro verde no topo) */}
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3.5 sm:p-4 rounded-2xl border border-gray-200/80 shadow-xs no-print">
+        <div className="flex items-center gap-2.5">
+          <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold">
+            <Calculator className="w-5 h-5" />
           </div>
-
-          {/* Botões de Ação Principais */}
-          <div className="flex flex-wrap items-center gap-2 shrink-0">
-            <button
-              onClick={handleOpenWhatsappModal}
-              className="flex items-center gap-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-emerald-950 font-black px-4 py-2.5 text-xs transition shadow-sm cursor-pointer"
-            >
-              <Phone className="w-4 h-4 fill-emerald-950" />
-              <span>Enviar por Zap (Imagem Print)</span>
-            </button>
-            <button
-              onClick={handleDownloadImage}
-              disabled={isGeneratingImage}
-              className="flex items-center gap-1.5 rounded-xl border border-emerald-600 bg-emerald-950/60 hover:bg-emerald-800 text-white font-bold px-3.5 py-2.5 text-xs transition cursor-pointer"
-              title="Baixar imagem print da fatura"
-            >
-              <ImageIcon className="w-4 h-4 text-emerald-300" />
-              <span>{isGeneratingImage ? 'Gerando Print...' : 'Baixar Imagem'}</span>
-            </button>
-            <button
-              onClick={handleDownloadPdf}
-              disabled={isGeneratingPdf}
-              className="flex items-center gap-1.5 rounded-xl border border-emerald-600 bg-emerald-950/60 hover:bg-emerald-800 text-white font-bold px-3.5 py-2.5 text-xs transition cursor-pointer"
-              title="Baixar em formato PDF"
-            >
-              <Download className="w-4 h-4 text-emerald-300" />
-              <span>{isGeneratingPdf ? 'Gerando PDF...' : 'Baixar PDF'}</span>
-            </button>
-            <button
-              onClick={handlePrint}
-              className="flex items-center gap-1.5 rounded-xl bg-white text-emerald-950 hover:bg-emerald-50 font-bold px-3.5 py-2.5 text-xs transition shadow-xs cursor-pointer"
-              title="Imprimir proposta"
-            >
-              <Printer className="w-4 h-4 text-emerald-800" />
-              <span>Imprimir</span>
-            </button>
+          <div>
+            <h2 className="text-sm sm:text-base font-black text-gray-900">
+              Simulação de Orçamento & Proposta
+            </h2>
+            <p className="text-xs text-gray-500">
+              Ajuste os valores abaixo para atualizar a fatura de exemplo em tempo real
+            </p>
           </div>
         </div>
 
-        {lastActionStatus && (
-          <div className="mt-3 py-1.5 px-3 rounded-lg bg-emerald-800/80 border border-emerald-500 text-xs text-emerald-200 font-semibold flex items-center gap-2 animate-fade-in">
-            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={handleOpenWhatsappModal}
+            className="flex items-center gap-1.5 rounded-xl bg-[#25D366] hover:bg-[#20ba59] text-white font-bold px-3.5 py-2 text-xs transition shadow-xs cursor-pointer"
+          >
+            <Phone className="w-3.5 h-3.5 fill-white" />
+            <span>Enviar via Zap</span>
+          </button>
+          <button
+            onClick={handleDownloadImage}
+            disabled={isGeneratingImage}
+            className="flex items-center gap-1.5 rounded-xl border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 font-bold px-3 py-2 text-xs transition shadow-xs cursor-pointer disabled:opacity-50"
+            title="Baixar imagem print da fatura"
+          >
+            <ImageIcon className="w-3.5 h-3.5 text-gray-500" />
+            <span>{isGeneratingImage ? 'Gerando Print...' : 'Baixar Imagem'}</span>
+          </button>
+          <button
+            onClick={handleDownloadPdf}
+            disabled={isGeneratingPdf}
+            className="flex items-center gap-1.5 rounded-xl border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 font-bold px-3 py-2 text-xs transition shadow-xs cursor-pointer disabled:opacity-50"
+            title="Baixar em formato PDF"
+          >
+            <Download className="w-3.5 h-3.5 text-gray-500" />
+            <span>{isGeneratingPdf ? 'Gerando PDF...' : 'Baixar PDF'}</span>
+          </button>
+          <button
+            onClick={handlePrint}
+            className="flex items-center gap-1.5 rounded-xl border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 font-bold px-3 py-2 text-xs transition shadow-xs cursor-pointer"
+            title="Imprimir proposta em 1 página"
+          >
+            <Printer className="w-3.5 h-3.5 text-gray-500" />
+            <span>Imprimir</span>
+          </button>
+        </div>
+      </div>
+
+      {lastActionStatus && (
+        <div className="py-2.5 px-4 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-800 font-bold flex items-center justify-between no-print shadow-xs animate-fade-in">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
             <span>{lastActionStatus}</span>
           </div>
-        )}
-      </div>
+          <button
+            onClick={() => setLastActionStatus('')}
+            className="text-emerald-500 hover:text-emerald-800 cursor-pointer"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {/* Grid: Formulário de Entrada (Esquerda) e Cards de Métricas (Direita) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 no-print">
@@ -766,7 +790,6 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
             className="invoice-card bg-[#1b7a3e] p-3 sm:p-5 text-gray-900 rounded-3xl shadow-2xl font-sans w-full"
             style={{
               maxWidth: '820px',
-              minHeight: '1120px',
               background: 'linear-gradient(180deg, #1d7b3f 0%, #156231 100%)',
             }}
           >
@@ -1185,11 +1208,38 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
               </div>
             </div>
 
+            {/* Miniatura do Print se já capturado */}
+            {imageCapturedUrl && (
+              <div className="flex items-center gap-3 p-2.5 bg-gray-50 rounded-xl border border-gray-200">
+                <img
+                  src={imageCapturedUrl}
+                  alt="Print da Fatura"
+                  className="w-14 h-18 object-cover rounded-lg border border-emerald-600 shadow-xs"
+                />
+                <div className="flex-1 min-w-0">
+                  <span className="text-xs font-bold text-gray-900 block truncate">
+                    Print da Fatura Gerado com Sucesso!
+                  </span>
+                  <span className="text-[11px] text-gray-500 block">
+                    Imagem pronta em alta resolução para envio
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleDownloadImage}
+                    className="text-[11px] font-bold text-emerald-700 hover:underline inline-flex items-center gap-1 mt-1 cursor-pointer"
+                  >
+                    <Download className="w-3 h-3" />
+                    <span>Baixar arquivo da imagem</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Instruções do Print da Imagem */}
             <div className="bg-amber-50 rounded-xl p-3 border border-amber-200 text-xs text-amber-900 space-y-1">
               <div className="flex items-center gap-1.5 font-bold text-amber-950">
                 <ImageIcon className="w-4 h-4 text-amber-600" />
-                <span>Como funciona o print da fatura:</span>
+                <span>Como funciona o envio do print:</span>
               </div>
               <p className="text-[11px] leading-relaxed">
                 Ao clicar em enviar, a imagem do print é <strong>gerada em alta qualidade</strong>, 
@@ -1199,8 +1249,9 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
             </div>
 
             {/* Ações do Modal */}
-            <div className="flex items-center gap-2 pt-2">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-2">
               <button
+                type="button"
                 onClick={copyTextToClipboard}
                 className="flex items-center justify-center gap-1.5 rounded-xl border border-gray-300 bg-white hover:bg-gray-50 px-3.5 py-2.5 text-xs font-bold text-gray-700 transition cursor-pointer"
                 title="Copiar texto da mensagem"
@@ -1210,6 +1261,7 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
               </button>
 
               <button
+                type="button"
                 onClick={handleSendWhatsapp}
                 disabled={isGeneratingImage}
                 className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-[#25D366] hover:bg-[#20ba59] text-white font-black px-4 py-2.5 text-xs sm:text-sm transition shadow-md cursor-pointer disabled:opacity-50"
