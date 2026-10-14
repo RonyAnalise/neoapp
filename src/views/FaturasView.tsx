@@ -516,51 +516,40 @@ export const FaturasView: React.FC<FaturasViewProps> = ({
 
       {/* Faturas Table */}
       <div className="bg-white rounded-2xl border border-gray-200/80 shadow-xs overflow-hidden">
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto lg:overflow-x-visible">
           <table className="w-full text-left text-xs">
             <thead className="bg-gray-50 border-b border-gray-200 text-gray-600 font-bold uppercase text-[10px] tracking-wider">
               <tr>
-                <th className="py-3 px-4">Fatura</th>
                 <th className="py-3 px-4">Cliente</th>
-                <th className="py-3 px-4">Competência</th>
-                <th className="py-3 px-4">Consumo</th>
-                <th className="py-3 px-4">Total a Pagar</th>
-                <th className="py-3 px-4">Economia</th>
-                <th className="py-3 px-4">Vencimento</th>
-                <th className="py-3 px-4 text-center">Boleto</th>
-                <th className="py-3 px-4 text-center">Situação</th>
+                <th className="py-3 px-3">Competência</th>
+                <th className="py-3 px-3">Total a Pagar</th>
+                <th className="py-3 px-3">Vencimento</th>
+                <th className="py-3 px-3 text-center">Boleto</th>
+                <th className="py-3 px-3 text-center">Situação</th>
                 <th className="py-3 px-4 text-right">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {filteredFaturas.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="py-12 text-center text-gray-400">
+                  <td colSpan={7} className="py-12 text-center text-gray-400">
                     Nenhuma fatura encontrada para os filtros selecionados.
                   </td>
                 </tr>
               ) : (
                 filteredFaturas.map((fat) => (
                   <tr key={fat.id} className="hover:bg-gray-50/60 transition">
-                    <td className="py-3 px-4 font-mono font-bold text-gray-900">
-                      #{fat.invoiceNumber}
+                    <td className="py-3 px-4">
+                      <div className="font-bold text-gray-900">{fat.clientName || 'Cliente'}</div>
+                      <div className="text-[10px] text-gray-400 font-mono">#{fat.invoiceNumber}</div>
                     </td>
-                    <td className="py-3 px-4 font-bold text-gray-900">
-                      {fat.clientName || 'Cliente'}
-                    </td>
-                    <td className="py-3 px-4 font-semibold text-gray-800">
+                    <td className="py-3 px-3 font-semibold text-gray-800 whitespace-nowrap">
                       {formatReferencePeriod(fat.referenceMonth, fat.referenceYear)}
                     </td>
-                    <td className="py-3 px-4 font-medium text-gray-700">
-                      {formatNumberBr(fat.consumptionKwh)} kWh
-                    </td>
-                    <td className="py-3 px-4 font-black text-emerald-800 text-sm">
+                    <td className="py-3 px-3 font-black text-emerald-800 text-sm whitespace-nowrap">
                       {formatCurrency(fat.totalToPay)}
                     </td>
-                    <td className="py-3 px-4 font-bold text-[#e97825]">
-                      {formatCurrency(fat.savingsAmount)}
-                    </td>
-                    <td className="py-3 px-4 text-gray-700">{formatDateBr(fat.dueDate)}</td>
+                    <td className="py-3 px-3 text-gray-700 whitespace-nowrap">{formatDateBr(fat.dueDate)}</td>
                     <td className="py-3 px-4 text-center">
                       {fat.status === 'paid' ? (
                         <span
