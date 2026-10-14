@@ -1,12 +1,29 @@
 @import "tailwindcss";
 
 @media print {
-  body {
-    background-color: white !important;
+  @page {
+    size: A4 portrait;
+    margin: 5mm;
+  }
+
+  html, body, #root {
+    width: 100% !important;
+    height: auto !important;
+    min-height: 100% !important;
+    overflow: visible !important;
+    background: white !important;
     margin: 0 !important;
     padding: 0 !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
+  }
+
+  /* Reset all overflow, positioning and heights so print starts from top */
+  div, main, section {
+    overflow: visible !important;
+    height: auto !important;
+    max-height: none !important;
+    position: static !important;
   }
 
   /* Hide UI elements during print */
@@ -14,23 +31,35 @@
   header,
   nav,
   .no-print,
-  button {
+  button,
+  .fixed,
+  footer {
     display: none !important;
   }
 
   main {
     padding: 0 !important;
     margin: 0 !important;
+    width: 100% !important;
     overflow: visible !important;
   }
 
-  .invoice-card {
+  .invoice-card,
+  #orcamento-invoice-container,
+  #invoice-printable-container {
     box-shadow: none !important;
-    border-radius: 0 !important;
+    border-radius: 8px !important;
     max-width: 100% !important;
     width: 100% !important;
+    min-height: 0 !important;
     margin: 0 auto !important;
+    padding: 8px !important;
     page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    transform: scale(0.85);
+    transform-origin: top center;
   }
 }
 
