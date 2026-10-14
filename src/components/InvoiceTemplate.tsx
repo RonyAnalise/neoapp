@@ -58,15 +58,14 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
   return (
     <div
       id="invoice-printable-container"
-      className="invoice-card mx-auto bg-[#1b7a3e] p-3 sm:p-5 text-gray-900 rounded-3xl shadow-2xl font-sans"
+      className="invoice-card mx-auto bg-[#1b7a3e] p-3 sm:p-5 text-gray-900 rounded-3xl shadow-2xl font-sans print:p-2.5 print:rounded-2xl print:shadow-none print:m-0 print:w-full print:max-w-none"
       style={{
         maxWidth: '820px',
-        minHeight: '1120px',
         background: 'linear-gradient(180deg, #1d7b3f 0%, #156231 100%)',
       }}
     >
       {/* Outer White Card with Rounded Corners */}
-      <div className="bg-white rounded-[26px] p-4 sm:p-6 shadow-inner relative flex flex-col justify-between h-full">
+      <div className="bg-white rounded-[26px] p-4 sm:p-6 shadow-inner relative flex flex-col justify-between h-full print:p-3.5 print:rounded-xl">
         {/* BLOCO 1 — CABEÇALHO */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b border-gray-100 pb-3">
           {/* Logo Neo Energia */}

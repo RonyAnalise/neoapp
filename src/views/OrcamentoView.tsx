@@ -359,59 +359,6 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* Barra Superior Compacta de Ações e Status (Substitui o quadro verde no topo) */}
-      <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3.5 sm:p-4 rounded-2xl border border-gray-200/80 shadow-xs no-print">
-        <div className="flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold">
-            <Calculator className="w-5 h-5" />
-          </div>
-          <div>
-            <h2 className="text-sm sm:text-base font-black text-gray-900">
-              Simulação de Orçamento & Proposta
-            </h2>
-            <p className="text-xs text-gray-500">
-              Ajuste os valores abaixo para atualizar a fatura de exemplo em tempo real
-            </p>
-          </div>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            onClick={handleOpenWhatsappModal}
-            className="flex items-center gap-1.5 rounded-xl bg-[#25D366] hover:bg-[#20ba59] text-white font-bold px-3.5 py-2 text-xs transition shadow-xs cursor-pointer"
-          >
-            <Phone className="w-3.5 h-3.5 fill-white" />
-            <span>Enviar via Zap</span>
-          </button>
-          <button
-            onClick={handleDownloadImage}
-            disabled={isGeneratingImage}
-            className="flex items-center gap-1.5 rounded-xl border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 font-bold px-3 py-2 text-xs transition shadow-xs cursor-pointer disabled:opacity-50"
-            title="Baixar imagem print da fatura"
-          >
-            <ImageIcon className="w-3.5 h-3.5 text-gray-500" />
-            <span>{isGeneratingImage ? 'Gerando Print...' : 'Baixar Imagem'}</span>
-          </button>
-          <button
-            onClick={handleDownloadPdf}
-            disabled={isGeneratingPdf}
-            className="flex items-center gap-1.5 rounded-xl border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 font-bold px-3 py-2 text-xs transition shadow-xs cursor-pointer disabled:opacity-50"
-            title="Baixar em formato PDF"
-          >
-            <Download className="w-3.5 h-3.5 text-gray-500" />
-            <span>{isGeneratingPdf ? 'Gerando PDF...' : 'Baixar PDF'}</span>
-          </button>
-          <button
-            onClick={handlePrint}
-            className="flex items-center gap-1.5 rounded-xl border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 font-bold px-3 py-2 text-xs transition shadow-xs cursor-pointer"
-            title="Imprimir proposta em 1 página"
-          >
-            <Printer className="w-3.5 h-3.5 text-gray-500" />
-            <span>Imprimir</span>
-          </button>
-        </div>
-      </div>
-
       {lastActionStatus && (
         <div className="py-2.5 px-4 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-800 font-bold flex items-center justify-between no-print shadow-xs animate-fade-in">
           <div className="flex items-center gap-2">
@@ -734,7 +681,7 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
       </div>
 
       {/* Seção da Fatura de Exemplo Renderizada (Identidade visual oficial) */}
-      <div className="bg-gray-100 p-3 sm:p-6 rounded-2xl border border-gray-300 shadow-inner">
+      <div className="bg-gray-100 p-3 sm:p-6 rounded-2xl border border-gray-300 shadow-inner print:p-0 print:m-0 print:border-none print:bg-transparent print:shadow-none print:rounded-none">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4 no-print">
           <div>
             <h3 className="text-base font-black text-gray-900 flex items-center gap-2">
@@ -783,18 +730,18 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
         </div>
 
         {/* CONTAINER DA FATURA PARA CAPTURA (html2canvas) E IMPRESSÃO */}
-        <div className="overflow-x-auto flex justify-center py-2">
+        <div className="overflow-x-auto flex justify-center py-2 print:p-0 print:m-0 print:overflow-visible print:block">
           <div
             ref={invoicePrintRef}
             id="orcamento-invoice-container"
-            className="invoice-card bg-[#1b7a3e] p-3 sm:p-5 text-gray-900 rounded-3xl shadow-2xl font-sans w-full"
+            className="invoice-card bg-[#1b7a3e] p-3 sm:p-5 text-gray-900 rounded-3xl shadow-2xl font-sans w-full print:p-2.5 print:rounded-2xl print:shadow-none print:m-0 print:w-full print:max-w-none"
             style={{
               maxWidth: '820px',
               background: 'linear-gradient(180deg, #1d7b3f 0%, #156231 100%)',
             }}
           >
             {/* Outer White Card with Rounded Corners */}
-            <div className="bg-white rounded-[26px] p-4 sm:p-6 shadow-inner relative flex flex-col justify-between h-full">
+            <div className="bg-white rounded-[26px] p-4 sm:p-6 shadow-inner relative flex flex-col justify-between h-full print:p-3.5 print:rounded-xl">
               {/* Selo Superior de Orçamento / Proposta */}
               <div className="mb-2 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 border-b border-emerald-100 pb-2">
                 <div className="flex flex-wrap items-center gap-2">
