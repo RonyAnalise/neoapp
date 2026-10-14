@@ -7,9 +7,11 @@ export async function generateInvoicePdf(element: HTMLElement, invoiceNumber: st
     const canvas = await html2canvas(element, {
       scale: 2, // 2x crisp retina resolution
       useCORS: true,
+      allowTaint: true,
       logging: false,
-      backgroundColor: '#059669', // background green
-      windowWidth: 1200,
+      backgroundColor: '#1b7a3e',
+      scrollX: 0,
+      scrollY: 0,
     });
 
     const imgData = canvas.toDataURL('image/jpeg', 0.95);
@@ -21,24 +23,27 @@ export async function generateInvoicePdf(element: HTMLElement, invoiceNumber: st
       format: 'a4',
     });
 
-    const pdfWidth = pdf.internal.pageSize.getWidth();
-    const pdfHeight = pdf.internal.pageSize.getHeight();
+    const pdfWidth = pdf.internal.pageSize.getWidth(); // 210mm
+    const pdfHeight = pdf.internal.pageSize.getHeight(); // 297mm
 
-    // Scale canvas image proportionally to fill the page neatly
+    // Margins to guarantee it fits on 1 single page without any spillover
+    const margin = 5;
+    const availWidth = pdfWidth - margin * 2;
+    const availHeight = pdfHeight - margin * 2;
+
     const imgProps = pdf.getImageProperties(imgData);
     const imgRatio = imgProps.width / imgProps.height;
-    const pageRatio = pdfWidth / pdfHeight;
 
-    let renderWidth = pdfWidth;
-    let renderHeight = pdfWidth / imgRatio;
+    let renderWidth = availWidth;
+    let renderHeight = availWidth / imgRatio;
 
-    if (renderHeight > pdfHeight) {
-      renderHeight = pdfHeight;
-      renderWidth = pdfHeight * imgRatio;
+    if (renderHeight > availHeight) {
+      renderHeight = availHeight;
+      renderWidth = availHeight * imgRatio;
     }
 
-    const xOffset = (pdfWidth - renderWidth) / 2;
-    const yOffset = (pdfHeight - renderHeight) / 2;
+    const xOffset = margin + (availWidth - renderWidth) / 2;
+    const yOffset = margin + (availHeight - renderHeight) / 2;
 
     pdf.addImage(imgData, 'JPEG', xOffset, yOffset, renderWidth, renderHeight);
     pdf.save(`Fatura_NeoEnergia_${invoiceNumber.replace(/\s+/g, '_')}.pdf`);
