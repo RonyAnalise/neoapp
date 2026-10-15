@@ -29,8 +29,8 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/75 p-2 sm:p-4 backdrop-blur-xs flex items-center justify-center print:static print:p-0 print:m-0 print:bg-white print:overflow-visible print:block">
-      <div className="relative w-full max-w-4xl rounded-2xl bg-gray-100 shadow-2xl flex flex-col max-h-[96vh] print:max-h-none print:shadow-none print:bg-transparent print:p-0 print:m-0 print:w-full print:max-w-none print:block">
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/75 p-2 sm:p-4 backdrop-blur-xs flex items-center justify-center print:fixed print:inset-0 print:z-[99999] print:bg-white print:p-0 print:m-0 print:overflow-hidden print:block">
+      <div className="relative w-full max-w-4xl rounded-2xl bg-gray-100 shadow-2xl flex flex-col max-h-[96vh] print:max-h-none print:shadow-none print:bg-white print:p-0 print:m-0 print:w-[210mm] print:h-[297mm] print:max-w-none print:block print:overflow-hidden">
         {/* Modal Action Bar */}
         <div className="sticky top-0 z-20 flex flex-wrap items-center justify-between gap-2 border-b border-gray-200 bg-white px-4 py-3 rounded-t-2xl shadow-xs no-print">
           <div className="flex items-center gap-2">
@@ -88,7 +88,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
         </div>
 
         {/* Modal Scrollable Body */}
-        <div className="overflow-y-auto p-3 sm:p-6 bg-gray-200/70 print:p-0 print:m-0 print:bg-transparent print:overflow-visible print:block">
+        <div className="overflow-y-auto p-3 sm:p-6 bg-gray-200/70 print:p-0 print:m-0 print:bg-white print:overflow-hidden print:block">
           <div ref={invoiceRef} className="print:m-0 print:p-0">
             <InvoiceTemplate
               fatura={fatura}
