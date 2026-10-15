@@ -1,10 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
-import html2canvas from 'html2canvas';
 import {
   Calculator,
   Printer,
-  Download,
-  Share2,
   Copy,
   Check,
   Zap,
@@ -12,7 +9,6 @@ import {
   Phone,
   FileText,
   CheckCircle2,
-  Image as ImageIcon,
   X,
   TrendingDown,
   Percent,
@@ -27,7 +23,6 @@ import {
   calculateDaysBetween,
   MONTH_NAMES_BR,
 } from '../lib/calculations';
-import { generateInvoicePdf } from '../lib/pdfService';
 
 interface OrcamentoViewProps {
   empresa: EmpresaConfig;
@@ -74,10 +69,7 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
   const dueDateStr = new Date(now.getTime() + 15 * 86400000).toISOString().split('T')[0];
 
   // Estados de ações
-  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
-  const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [whatsappModalOpen, setWhatsappModalOpen] = useState(false);
-  const [imageCapturedUrl, setImageCapturedUrl] = useState<string | null>(null);
   const [copiedSuccess, setCopiedSuccess] = useState(false);
   const [lastActionStatus, setLastActionStatus] = useState<string>('');
 
@@ -206,201 +198,23 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
     }, 150);
   };
 
-  // 2. Ação: Baixar em PDF (Garante escala proporcional e ajuste em 1 página)
-  const handleDownloadPdf = async () => {
-    if (!invoicePrintRef.current) return;
-    setIsGeneratingPdf(true);
-    setLastActionStatus('Gerando arquivo PDF da fatura...');
-    try {
-      await generateInvoicePdf(
-        invoicePrintRef.current,
-        `Orcamento_${clientName.replace(/\s+/g, '_')}`
-      );
-      setLastActionStatus('PDF do orçamento gerado e baixado com sucesso!');
-      setTimeout(() => setLastActionStatus(''), 4000);
-    } catch (err) {
-      console.error('Erro ao gerar PDF:', err);
-      setLastActionStatus('Não foi possível gerar o PDF. Verifique se a fatura está visível na tela.');
-    } finally {
-      setIsGeneratingPdf(false);
-    }
-  };
-
-  // 3. Ação: Captura a imagem em alta resolução usando html2canvas
-  const captureInvoiceImage = async (): Promise<{ blob: Blob; dataUrl: string } | null> => {
-    if (!invoicePrintRef.current) return null;
-    setIsGeneratingImage(true);
-    try {
-      const element = invoicePrintRef.current;
-      const canvas = await html2canvas(element, {
-        scale: 2, // 2x alta resolução
-        useCORS: true,
-        allowTaint: false, // Não permite manchar o canvas para viabilizar exportação toDataURL / toBlob
-        logging: false,
-        backgroundColor: '#1b7a3e',
-        scrollX: 0,
-        scrollY: 0,
-      });
-
-      const dataUrl = canvas.toDataURL('image/png');
-      const blob = await new Promise<Blob | null>((resolve) =>
-        canvas.toBlob((b) => resolve(b), 'image/png')
-      );
-
-      if (!blob) throw new Error('Não foi possível gerar a imagem.');
-      setImageCapturedUrl(dataUrl);
-      return { blob, dataUrl };
-    } catch (err) {
-      console.error('Erro ao capturar print da fatura:', err);
-      setLastActionStatus('Atenção: Não foi possível capturar a imagem.');
-      return null;
-    } finally {
-      setIsGeneratingImage(false);
-    }
-  };
-
-  // 4. Ação: Copiar print da fatura em imagem para a área de transferência e baixar arquivo
-  const handleDownloadImage = async () => {
-    setIsGeneratingImage(true);
-    setLastActionStatus('Capturando e copiando print da fatura...');
-
-    try {
-      let copied = false;
-      let capturedResult: { blob: Blob; dataUrl: string } | null = null;
-
-      // Método 1: Passar Promise no ClipboardItem (suportado no Chrome/Edge/Safari moderno, retém permissão de gesto do usuário)
-      if (navigator.clipboard && typeof ClipboardItem !== 'undefined') {
-        try {
-          const blobPromise = new Promise<Blob>(async (resolve, reject) => {
-            try {
-              const res = await captureInvoiceImage();
-              if (res?.blob) {
-                capturedResult = res;
-                resolve(res.blob);
-              } else {
-                reject(new Error('Falha ao gerar imagem'));
-              }
-            } catch (e) {
-              reject(e);
-            }
-          });
-
-          const item = new ClipboardItem({
-            'image/png': blobPromise,
-          });
-
-          await navigator.clipboard.write([item]);
-          copied = true;
-        } catch (e1) {
-          console.warn('Tentativa 1 com Promise no ClipboardItem:', e1);
-        }
-      }
-
-      // Se o método 1 não gerou o resultado ou não foi suportado, captura agora
-      if (!capturedResult) {
-        capturedResult = await captureInvoiceImage();
-      }
-
-      // Método 2 (Fallback): Se ainda não copiou e temos o blob pronto
-      if (!copied && capturedResult?.blob && navigator.clipboard && typeof ClipboardItem !== 'undefined') {
-        try {
-          const item = new ClipboardItem({
-            'image/png': capturedResult.blob,
-          });
-          await navigator.clipboard.write([item]);
-          copied = true;
-        } catch (e2) {
-          console.warn('Tentativa 2 com Blob no ClipboardItem:', e2);
-        }
-      }
-
-      // 3. Dispara download automático do PNG como garantia
-      if (capturedResult?.dataUrl) {
-        const a = document.createElement('a');
-        a.href = capturedResult.dataUrl;
-        a.download = `Print_Fatura_Orcamento_${clientName.replace(/\s+/g, '_')}.png`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-      }
-
-      if (copied) {
-        setCopiedSuccess(true);
-        setLastActionStatus('✅ Print copiado para a Área de Transferência! (Use Ctrl+V para colar no WhatsApp ou onde desejar).');
-        setTimeout(() => {
-          setCopiedSuccess(false);
-          setLastActionStatus('');
-        }, 6000);
-      } else {
-        setLastActionStatus('Imagem do print baixada no seu dispositivo!');
-        setTimeout(() => setLastActionStatus(''), 4000);
-      }
-    } catch (err) {
-      console.error('Erro ao capturar print da fatura:', err);
-      setLastActionStatus('Não foi possível gerar a imagem da fatura.');
-    } finally {
-      setIsGeneratingImage(false);
-    }
-  };
-
-  // 5. Ação: Enviar por Zap (abre modal para digitar número e disparar)
-  const handleOpenWhatsappModal = async () => {
+  // 2. Ação: Enviar por Zap (abre modal para digitar número e disparar)
+  const handleOpenWhatsappModal = () => {
     setWhatsappModalOpen(true);
-    // Já prepara o print da fatura em background
-    if (!imageCapturedUrl) {
-      captureInvoiceImage();
-    }
   };
 
-  // Disparo do WhatsApp com o print e texto
-  const handleSendWhatsapp = async () => {
+  // Disparo do WhatsApp com o texto da proposta
+  const handleSendWhatsapp = () => {
     const cleanPhone = phoneForZap.replace(/\D/g, '');
     if (!cleanPhone || cleanPhone.length < 10) {
       setLastActionStatus('Atenção: Digite o WhatsApp com DDD (ex: 73999998888).');
       return;
     }
 
-    setLastActionStatus('Gerando print e preparando WhatsApp...');
-
-    // 1. Gera ou recupera o print da imagem
-    let dataUrl = imageCapturedUrl;
-    let blob: Blob | null = null;
-    if (!dataUrl) {
-      const res = await captureInvoiceImage();
-      if (res) {
-        dataUrl = res.dataUrl;
-        blob = res.blob;
-      }
-    }
-
-    // 2. Baixa a imagem do print automaticamente para facilitar anexo
-    if (dataUrl) {
-      const a = document.createElement('a');
-      a.href = dataUrl;
-      a.download = `Fatura_Exemplo_${clientName.replace(/\s+/g, '_')}.png`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-
-      // Tenta copiar a imagem para a área de transferência do usuário para colar com Ctrl+V
-      if (navigator.clipboard && window.ClipboardItem && blob) {
-        try {
-          await navigator.clipboard.write([
-            new ClipboardItem({ 'image/png': blob }),
-          ]);
-          setCopiedSuccess(true);
-        } catch (e) {
-          console.warn('Clipboard write image not allowed or failed:', e);
-        }
-      }
-    }
-
-    // 3. Monta link do WhatsApp com mensagem pronta
     const formattedPhone = cleanPhone.length <= 11 ? `55${cleanPhone}` : cleanPhone;
     const msg = generateWhatsAppMessage();
     const zapUrl = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(msg)}`;
 
-    // Disparo seguro via link direto (evita bloqueio de pop-up do navegador)
     const link = document.createElement('a');
     link.href = zapUrl;
     link.target = '_blank';
@@ -409,9 +223,10 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
     link.click();
     document.body.removeChild(link);
 
-    setLastActionStatus('Print baixado e WhatsApp aberto!');
-    setTimeout(() => setLastActionStatus(''), 5000);
+    setLastActionStatus('WhatsApp aberto com a proposta de orçamento!');
+    setTimeout(() => setLastActionStatus(''), 4000);
   };
+
 
   const copyTextToClipboard = () => {
     navigator.clipboard.writeText(generateWhatsAppMessage());
@@ -768,47 +583,18 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
           <div className="flex items-center gap-2">
             <button
               onClick={handleOpenWhatsappModal}
-              className="flex items-center gap-1.5 rounded-xl bg-emerald-700 px-3.5 py-1.5 text-xs font-bold text-white hover:bg-emerald-800 transition cursor-pointer shadow-xs"
+              className="flex items-center gap-1.5 rounded-xl bg-[#25D366] hover:bg-[#20ba59] px-4 py-2 text-xs font-bold text-white transition cursor-pointer shadow-xs"
             >
               <Phone className="w-3.5 h-3.5" />
               <span>Enviar via Zap</span>
             </button>
             <button
-              onClick={handleDownloadImage}
-              disabled={isGeneratingImage}
-              className={`flex items-center gap-1.5 rounded-xl border px-3.5 py-1.5 text-xs font-bold transition cursor-pointer shadow-xs ${
-                copiedSuccess
-                  ? 'border-emerald-500 bg-emerald-50 text-emerald-800'
-                  : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
-              }`}
-              title="Copiar imagem do print para a área de transferência (Ctrl+V) e baixar"
-            >
-              {copiedSuccess ? (
-                <>
-                  <Check className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>Print Copiado (Ctrl+V)!</span>
-                </>
-              ) : (
-                <>
-                  <Copy className="w-3.5 h-3.5 text-gray-600" />
-                  <span>{isGeneratingImage ? 'Copiando Print...' : 'Copiar Print'}</span>
-                </>
-              )}
-            </button>
-            <button
-              onClick={handleDownloadPdf}
-              disabled={isGeneratingPdf}
-              className="flex items-center gap-1.5 rounded-xl border border-gray-300 bg-white px-3.5 py-1.5 text-xs font-bold text-gray-700 hover:bg-gray-50 transition cursor-pointer shadow-xs"
-            >
-              <Download className="w-3.5 h-3.5 text-gray-600" />
-              <span>Baixar PDF</span>
-            </button>
-            <button
               onClick={handlePrint}
-              className="flex items-center gap-1.5 rounded-xl border border-gray-300 bg-white px-3.5 py-1.5 text-xs font-bold text-gray-700 hover:bg-gray-50 transition cursor-pointer shadow-xs"
+              className="flex items-center gap-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 px-4 py-2 text-xs font-bold text-white transition cursor-pointer shadow-xs"
+              title="Imprimir orçamento em folha A4"
             >
-              <Printer className="w-3.5 h-3.5 text-gray-600" />
-              <span>Imprimir</span>
+              <Printer className="w-4 h-4" />
+              <span>Imprimir Orçamento</span>
             </button>
           </div>
         </div>
@@ -1251,46 +1037,6 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
               </div>
             </div>
 
-            {/* Miniatura do Print se já capturado */}
-            {imageCapturedUrl && (
-              <div className="flex items-center gap-3 p-2.5 bg-gray-50 rounded-xl border border-gray-200">
-                <img
-                  src={imageCapturedUrl}
-                  alt="Print da Fatura"
-                  className="w-14 h-18 object-cover rounded-lg border border-emerald-600 shadow-xs"
-                />
-                <div className="flex-1 min-w-0">
-                  <span className="text-xs font-bold text-gray-900 block truncate">
-                    Print da Fatura Gerado com Sucesso!
-                  </span>
-                  <span className="text-[11px] text-gray-500 block">
-                    Imagem pronta em alta resolução para envio
-                  </span>
-                  <button
-                    type="button"
-                    onClick={handleDownloadImage}
-                    className="text-[11px] font-bold text-emerald-700 hover:underline inline-flex items-center gap-1 mt-1 cursor-pointer"
-                  >
-                    <Copy className="w-3 h-3" />
-                    <span>Copiar print (Ctrl+V) / Baixar</span>
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Instruções do Print da Imagem */}
-            <div className="bg-amber-50 rounded-xl p-3 border border-amber-200 text-xs text-amber-900 space-y-1">
-              <div className="flex items-center gap-1.5 font-bold text-amber-950">
-                <ImageIcon className="w-4 h-4 text-amber-600" />
-                <span>Como funciona o envio do print:</span>
-              </div>
-              <p className="text-[11px] leading-relaxed">
-                Ao clicar em enviar, a imagem do print é <strong>gerada em alta qualidade</strong>, 
-                copiada para a sua área de transferência e baixada no seu aparelho. No WhatsApp Web ou App,
-                basta dar <strong>Ctrl + V</strong> (Colar) para enviar o print junto com a proposta!
-              </p>
-            </div>
-
             {/* Ações do Modal */}
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-2">
               <button
@@ -1306,11 +1052,10 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
               <button
                 type="button"
                 onClick={handleSendWhatsapp}
-                disabled={isGeneratingImage}
-                className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-[#25D366] hover:bg-[#20ba59] text-white font-black px-4 py-2.5 text-xs sm:text-sm transition shadow-md cursor-pointer disabled:opacity-50"
+                className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-[#25D366] hover:bg-[#20ba59] text-white font-black px-4 py-2.5 text-xs sm:text-sm transition shadow-md cursor-pointer"
               >
                 <Phone className="w-4 h-4 fill-white" />
-                <span>{isGeneratingImage ? 'Gerando Print...' : 'Gerar Print e Abrir WhatsApp ➜'}</span>
+                <span>Abrir WhatsApp com Proposta ➜</span>
               </button>
             </div>
           </div>

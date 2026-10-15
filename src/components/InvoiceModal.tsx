@@ -1,8 +1,7 @@
-import React, { useRef, useState } from 'react';
-import { X, Download, Printer, CheckCircle, AlertTriangle, FileText } from 'lucide-react';
+import React, { useRef } from 'react';
+import { X, Printer, FileText } from 'lucide-react';
 import { Fatura, Cliente, EmpresaConfig } from '../types';
 import { InvoiceTemplate } from './InvoiceTemplate';
-import { generateInvoicePdf } from '../lib/pdfService';
 
 interface InvoiceModalProps {
   fatura: Fatura | null;
@@ -21,28 +20,9 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
   onClose,
   onOpenBoleto,
 }) => {
-  const [downloading, setDownloading] = useState(false);
-  const [downloadFeedback, setDownloadFeedback] = useState<string | null>(null);
   const invoiceRef = useRef<HTMLDivElement>(null);
 
   if (!fatura || !cliente) return null;
-
-  const handleDownload = async () => {
-    if (!invoiceRef.current) return;
-    setDownloading(true);
-    setDownloadFeedback(null);
-    try {
-      await generateInvoicePdf(invoiceRef.current, fatura.invoiceNumber);
-      setDownloadFeedback('PDF gerado com sucesso!');
-      setTimeout(() => setDownloadFeedback(null), 3500);
-    } catch (err) {
-      console.error('Erro ao gerar PDF da fatura:', err);
-      setDownloadFeedback('Erro ao gerar o PDF da fatura.');
-      setTimeout(() => setDownloadFeedback(null), 4000);
-    } finally {
-      setDownloading(false);
-    }
-  };
 
   const handlePrint = () => {
     window.print();
@@ -91,31 +71,11 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
 
             <button
               onClick={handlePrint}
-              className="flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-bold text-gray-700 hover:bg-gray-50 transition cursor-pointer"
-              title="Imprimir fatura"
+              className="flex items-center gap-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 px-4 py-2 text-xs font-bold text-white transition cursor-pointer shadow-xs"
+              title="Imprimir fatura em folha A4"
             >
-              <Printer className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Imprimir</span>
-            </button>
-
-            {downloadFeedback && (
-              <span className={`text-xs font-bold px-2.5 py-1 rounded-lg border ${
-                downloadFeedback.includes('Erro')
-                  ? 'bg-rose-50 text-rose-700 border-rose-200'
-                  : 'bg-emerald-50 text-emerald-800 border-emerald-200'
-              }`}>
-                {downloadFeedback}
-              </span>
-            )}
-
-            <button
-              onClick={handleDownload}
-              disabled={downloading}
-              className="flex items-center gap-1.5 rounded-lg bg-emerald-700 px-3.5 py-1.5 text-xs font-bold text-white hover:bg-emerald-800 disabled:opacity-50 transition cursor-pointer shadow-xs"
-              title="Baixar em formato PDF"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>{downloading ? 'Gerando PDF...' : 'Baixar PDF'}</span>
+              <Printer className="w-4 h-4" />
+              <span>Imprimir Fatura</span>
             </button>
 
             <button
