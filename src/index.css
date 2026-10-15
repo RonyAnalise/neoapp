@@ -3,26 +3,24 @@
 @media print {
   @page {
     size: A4 portrait;
-    margin: 3mm 4mm;
+    margin: 0 !important;
   }
 
   html,
   body {
-    width: 100% !important;
-    height: 100% !important;
+    width: 210mm !important;
+    height: 297mm !important;
+    min-height: 297mm !important;
+    max-height: 297mm !important;
     margin: 0 !important;
     padding: 0 !important;
     background: white !important;
+    overflow: hidden !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
 
-  /* Quando o modal de fatura estiver aberto, oculta o <main> de fundo (evita imprimir faturas da tabela) */
-  body:has(#invoice-printable-container) main {
-    display: none !important;
-  }
-
-  /* Oculta navegação, header, botões e barras da aplicação */
+  /* Oculta toda a interface e elementos de controle que não fazem parte da impressão */
   aside,
   header,
   nav,
@@ -32,135 +30,142 @@
     display: none !important;
   }
 
-  /* Reset do container principal para o topo */
+  /* Se a fatura estiver sendo impressa pelo modal, oculta os containers pais do app */
+  body:has(#invoice-printable-container) main,
+  body:has(#invoice-printable-container) #root > div > div > header,
+  body:has(#invoice-printable-container) #root > div > aside {
+    display: none !important;
+  }
+
   main {
     padding: 0 !important;
     margin: 0 !important;
-    width: 100% !important;
-    max-width: 100% !important;
-    overflow: visible !important;
+    width: 210mm !important;
+    height: 297mm !important;
+    max-height: 297mm !important;
+    overflow: hidden !important;
     background: transparent !important;
   }
 
-  /* Container da Fatura e do Orçamento: Escala NORMAL (100%) em 1 ÚNICA FOLHA */
+  /* Fatura e Orçamento: preenchem 100% da folha A4 com borda segura de 2mm x 3mm */
   #invoice-printable-container,
   #orcamento-invoice-container,
   .invoice-card {
-    transform: none !important;
+    position: fixed !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 210mm !important;
+    min-width: 210mm !important;
+    max-width: 210mm !important;
+    height: 297mm !important;
+    min-height: 297mm !important;
+    max-height: 297mm !important;
+    margin: 0 !important;
+    padding: 2mm 3mm !important;
+    border-radius: 0 !important;
     box-shadow: none !important;
-    width: 100% !important;
-    max-width: 100% !important;
-    margin: 0 auto !important;
-    padding: 4px 6px !important;
-    border-radius: 10px !important;
     box-sizing: border-box !important;
+    background: white !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: flex-start !important;
+    overflow: hidden !important;
     page-break-inside: avoid !important;
     break-inside: avoid !important;
     page-break-after: avoid !important;
     break-after: avoid !important;
     page-break-before: avoid !important;
     break-before: avoid !important;
-    max-height: 290mm !important;
-    overflow: hidden !important;
+    z-index: 99999 !important;
+    transform: none !important;
   }
 
-  /* Card branco interno da fatura */
-  #invoice-printable-container > div,
-  #orcamento-invoice-container > div {
-    padding: 5px 8px !important;
-    border-radius: 8px !important;
+  /* O Card Principal de Conteúdo (div:first-child) preenche de forma contínua e sem vazios brancos */
+  #invoice-printable-container > div:first-child,
+  #orcamento-invoice-container > div:first-child {
+    width: 100% !important;
+    flex: 1 1 auto !important;
+    height: auto !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: flex-start !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    box-sizing: border-box !important;
+    gap: 3px !important;
   }
 
-  /* Compactar espaçamentos verticais na impressão para caber tudo em 1 página */
+  /* O Rodapé "JUNTOS VAMOS TRANSFORMAR O MUNDO!" (div:last-child) */
+  #invoice-printable-container > div:last-child,
+  #orcamento-invoice-container > div:last-child {
+    flex: 0 0 auto !important;
+    height: auto !important;
+    margin-top: 3px !important;
+    margin-bottom: 0 !important;
+    padding: 2.5px 6px !important;
+    background: #156231 !important;
+    border-radius: 4px !important;
+    text-align: center !important;
+    box-sizing: border-box !important;
+  }
+
+  #invoice-printable-container > div:last-child p,
+  #orcamento-invoice-container > div:last-child p {
+    color: white !important;
+    font-size: 10.5px !important;
+    font-weight: 900 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    letter-spacing: 0.05em !important;
+  }
+
+  /* Espaçamento compacto e direto entre os blocos — elimina vãos brancos */
   #invoice-printable-container .mt-3,
   #orcamento-invoice-container .mt-3,
-  #invoice-printable-container .mb-3,
-  #orcamento-invoice-container .mb-3 {
-    margin-top: 3px !important;
-    margin-bottom: 3px !important;
-  }
-
-  #invoice-printable-container .mb-2,
-  #orcamento-invoice-container .mb-2,
   #invoice-printable-container .mt-2,
-  #orcamento-invoice-container .mt-2,
-  #invoice-printable-container .mt-2\.5,
-  #orcamento-invoice-container .mt-2\.5 {
-    margin-top: 2px !important;
+  #orcamento-invoice-container .mt-2 {
+    margin-top: 3px !important;
+  }
+
+  #invoice-printable-container .mb-3,
+  #orcamento-invoice-container .mb-3,
+  #invoice-printable-container .mb-2,
+  #orcamento-invoice-container .mb-2 {
     margin-bottom: 2px !important;
-  }
-
-  #invoice-printable-container .pb-3,
-  #orcamento-invoice-container .pb-3,
-  #invoice-printable-container .pb-2,
-  #orcamento-invoice-container .pb-2 {
-    padding-bottom: 2px !important;
-  }
-
-  #invoice-printable-container .p-2\.5,
-  #orcamento-invoice-container .p-2\.5,
-  #invoice-printable-container .p-3,
-  #orcamento-invoice-container .p-3 {
-    padding: 2.5px 5px !important;
-  }
-
-  #invoice-printable-container .p-2,
-  #orcamento-invoice-container .p-2 {
-    padding: 2px 4px !important;
   }
 
   #invoice-printable-container .gap-3,
   #orcamento-invoice-container .gap-3,
-  #invoice-printable-container .gap-2\.5,
-  #orcamento-invoice-container .gap-2\.5 {
+  #invoice-printable-container .gap-2.5,
+  #orcamento-invoice-container .gap-2.5 {
     gap: 3px !important;
   }
 
-  #invoice-printable-container .gap-2,
-  #orcamento-invoice-container .gap-2 {
-    gap: 2px !important;
+  #invoice-printable-container .pb-3,
+  #orcamento-invoice-container .pb-3 {
+    padding-bottom: 2px !important;
   }
 
-  /* Tabela de 12 meses na impressão */
+  #invoice-printable-container .p-2.5,
+  #orcamento-invoice-container .p-2.5,
+  #invoice-printable-container .p-3,
+  #orcamento-invoice-container .p-3 {
+    padding: 3px 6px !important;
+  }
+
+  /* Tabela de 12 meses preenche a altura perfeitamente */
   #invoice-printable-container table td,
   #orcamento-invoice-container table td,
   #invoice-printable-container table th,
   #orcamento-invoice-container table th {
-    padding-top: 0.5px !important;
-    padding-bottom: 0.5px !important;
-    padding-left: 2px !important;
-    padding-right: 2px !important;
-    font-size: 8px !important;
-    line-height: 1.1 !important;
-  }
-
-  /* Tipografia compacta proporcional para impressão */
-  #invoice-printable-container .text-\[10px\],
-  #orcamento-invoice-container .text-\[10px\],
-  #invoice-printable-container .text-\[11px\],
-  #orcamento-invoice-container .text-\[11px\] {
+    padding-top: 1px !important;
+    padding-bottom: 1px !important;
+    padding-left: 3px !important;
+    padding-right: 3px !important;
     font-size: 8.5px !important;
     line-height: 1.15 !important;
-  }
-
-  #invoice-printable-container .text-xs,
-  #orcamento-invoice-container .text-xs {
-    font-size: 9.5px !important;
-    line-height: 1.2 !important;
-  }
-
-  #invoice-printable-container .text-sm,
-  #orcamento-invoice-container .text-sm {
-    font-size: 11px !important;
-    line-height: 1.2 !important;
-  }
-
-  #invoice-printable-container .text-base,
-  #orcamento-invoice-container .text-base,
-  #invoice-printable-container .text-lg,
-  #orcamento-invoice-container .text-lg {
-    font-size: 13px !important;
-    line-height: 1.2 !important;
   }
 }
 
