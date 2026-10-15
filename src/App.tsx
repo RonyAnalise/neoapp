@@ -677,11 +677,11 @@ function MainApp() {
           onOpenMobileMenu={() => setMobileMenuOpen(true)}
         />
 
-        <main className="flex-1 p-4 sm:p-8">
+        <main className="flex-1 p-4 sm:p-8 print:p-0 print:m-0">
           {/* Banner de Sincronização e Feedback de Faturas das Imagens */}
           {(clientes.length < 38 || syncStatus !== 'idle') && (
             <div
-              className={`mb-6 p-4 rounded-2xl shadow-md border flex flex-col md:flex-row items-center justify-between gap-4 transition-all ${
+              className={`mb-6 p-4 rounded-2xl shadow-md border flex flex-col md:flex-row items-center justify-between gap-4 transition-all no-print ${
                 syncStatus === 'error'
                   ? 'bg-rose-900 border-rose-700 text-white'
                   : syncStatus === 'success'
