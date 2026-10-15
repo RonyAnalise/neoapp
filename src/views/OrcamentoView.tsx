@@ -24,6 +24,7 @@ import {
   formatNumberBr,
   formatDateBr,
   formatReferencePeriod,
+  calculateDaysBetween,
   MONTH_NAMES_BR,
 } from '../lib/calculations';
 import { generateInvoicePdf } from '../lib/pdfService';
@@ -234,7 +235,7 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
       const canvas = await html2canvas(element, {
         scale: 2, // 2x alta resolução
         useCORS: true,
-        allowTaint: true,
+        allowTaint: false, // Não permite manchar o canvas para viabilizar exportação toDataURL / toBlob
         logging: false,
         backgroundColor: '#1b7a3e',
         scrollX: 0,
@@ -258,19 +259,88 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
     }
   };
 
-  // 4. Ação: Baixar apenas a imagem PNG (print)
+  // 4. Ação: Copiar print da fatura em imagem para a área de transferência e baixar arquivo
   const handleDownloadImage = async () => {
-    setLastActionStatus('Gerando print em imagem...');
-    const result = await captureInvoiceImage();
-    if (!result) return;
-    const a = document.createElement('a');
-    a.href = result.dataUrl;
-    a.download = `Print_Fatura_Orcamento_${clientName.replace(/\s+/g, '_')}.png`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setLastActionStatus('Imagem print da fatura baixada com sucesso!');
-    setTimeout(() => setLastActionStatus(''), 4000);
+    setIsGeneratingImage(true);
+    setLastActionStatus('Capturando e copiando print da fatura...');
+
+    try {
+      let copied = false;
+      let capturedResult: { blob: Blob; dataUrl: string } | null = null;
+
+      // Método 1: Passar Promise no ClipboardItem (suportado no Chrome/Edge/Safari moderno, retém permissão de gesto do usuário)
+      if (navigator.clipboard && typeof ClipboardItem !== 'undefined') {
+        try {
+          const blobPromise = new Promise<Blob>(async (resolve, reject) => {
+            try {
+              const res = await captureInvoiceImage();
+              if (res?.blob) {
+                capturedResult = res;
+                resolve(res.blob);
+              } else {
+                reject(new Error('Falha ao gerar imagem'));
+              }
+            } catch (e) {
+              reject(e);
+            }
+          });
+
+          const item = new ClipboardItem({
+            'image/png': blobPromise,
+          });
+
+          await navigator.clipboard.write([item]);
+          copied = true;
+        } catch (e1) {
+          console.warn('Tentativa 1 com Promise no ClipboardItem:', e1);
+        }
+      }
+
+      // Se o método 1 não gerou o resultado ou não foi suportado, captura agora
+      if (!capturedResult) {
+        capturedResult = await captureInvoiceImage();
+      }
+
+      // Método 2 (Fallback): Se ainda não copiou e temos o blob pronto
+      if (!copied && capturedResult?.blob && navigator.clipboard && typeof ClipboardItem !== 'undefined') {
+        try {
+          const item = new ClipboardItem({
+            'image/png': capturedResult.blob,
+          });
+          await navigator.clipboard.write([item]);
+          copied = true;
+        } catch (e2) {
+          console.warn('Tentativa 2 com Blob no ClipboardItem:', e2);
+        }
+      }
+
+      // 3. Dispara download automático do PNG como garantia
+      if (capturedResult?.dataUrl) {
+        const a = document.createElement('a');
+        a.href = capturedResult.dataUrl;
+        a.download = `Print_Fatura_Orcamento_${clientName.replace(/\s+/g, '_')}.png`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      }
+
+      if (copied) {
+        setCopiedSuccess(true);
+        setLastActionStatus('✅ Print copiado para a Área de Transferência! (Use Ctrl+V para colar no WhatsApp ou onde desejar).');
+        setTimeout(() => {
+          setCopiedSuccess(false);
+          setLastActionStatus('');
+        }, 6000);
+      } else {
+        setLastActionStatus('Imagem do print baixada no seu dispositivo!');
+        setTimeout(() => setLastActionStatus(''), 4000);
+      }
+    } catch (err) {
+      console.error('Erro ao capturar print da fatura:', err);
+      setLastActionStatus('Não foi possível gerar a imagem da fatura.');
+    } finally {
+      setIsGeneratingImage(false);
+    }
   };
 
   // 5. Ação: Enviar por Zap (abre modal para digitar número e disparar)
@@ -706,10 +776,24 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
             <button
               onClick={handleDownloadImage}
               disabled={isGeneratingImage}
-              className="flex items-center gap-1.5 rounded-xl border border-gray-300 bg-white px-3.5 py-1.5 text-xs font-bold text-gray-700 hover:bg-gray-50 transition cursor-pointer shadow-xs"
+              className={`flex items-center gap-1.5 rounded-xl border px-3.5 py-1.5 text-xs font-bold transition cursor-pointer shadow-xs ${
+                copiedSuccess
+                  ? 'border-emerald-500 bg-emerald-50 text-emerald-800'
+                  : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+              }`}
+              title="Copiar imagem do print para a área de transferência (Ctrl+V) e baixar"
             >
-              <ImageIcon className="w-3.5 h-3.5 text-gray-600" />
-              <span>Print em Imagem</span>
+              {copiedSuccess ? (
+                <>
+                  <Check className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Print Copiado (Ctrl+V)!</span>
+                </>
+              ) : (
+                <>
+                  <Copy className="w-3.5 h-3.5 text-gray-600" />
+                  <span>{isGeneratingImage ? 'Copiando Print...' : 'Copiar Print'}</span>
+                </>
+              )}
             </button>
             <button
               onClick={handleDownloadPdf}
@@ -988,7 +1072,7 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
                     <span className="text-[11px] font-black text-[#156231] block">LEITURA DESTE MÊS</span>
                   </div>
 
-                  <div className="my-1">
+                  <div className="my-0.5">
                     <span className="text-[10px] font-black text-gray-600 block uppercase">LEITURA INICIAL</span>
                     <span className="text-[11px] font-bold text-gray-800 block">
                       {formatDateBr(simulatedInvoice.previousReadingDate)}
@@ -998,7 +1082,19 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
                     </span>
                   </div>
 
-                  <div className="border-t border-emerald-100 pt-1">
+                  {/* Qtd de Dias Utilizados entre Leitura Anterior e Atual */}
+                  <div className="border-t border-b border-emerald-100 py-1 my-0.5 bg-emerald-50/70 rounded-md">
+                    <span className="text-[9px] font-black text-gray-600 block uppercase tracking-wider">
+                      DIAS UTILIZADOS
+                    </span>
+                    <span className="text-xs sm:text-sm font-black text-[#156231] block">
+                      {calculateDaysBetween(simulatedInvoice.previousReadingDate, simulatedInvoice.currentReadingDate) !== null
+                        ? `${calculateDaysBetween(simulatedInvoice.previousReadingDate, simulatedInvoice.currentReadingDate)} DIAS`
+                        : '-'}
+                    </span>
+                  </div>
+
+                  <div className="my-0.5">
                     <span className="text-[10px] font-black text-gray-600 block uppercase">LEITURA FINAL</span>
                     <span className="text-[11px] font-bold text-gray-800 block">
                       {formatDateBr(simulatedInvoice.currentReadingDate)}
@@ -1175,8 +1271,8 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
                     onClick={handleDownloadImage}
                     className="text-[11px] font-bold text-emerald-700 hover:underline inline-flex items-center gap-1 mt-1 cursor-pointer"
                   >
-                    <Download className="w-3 h-3" />
-                    <span>Baixar arquivo da imagem</span>
+                    <Copy className="w-3 h-3" />
+                    <span>Copiar print (Ctrl+V) / Baixar</span>
                   </button>
                 </div>
               </div>

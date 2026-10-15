@@ -40,7 +40,7 @@
     display: none !important;
   }
 
-  /* Fatura e Orçamento ocupando toda a folha A4 em 1 página sem escala distorcida */
+  /* Fatura e Orçamento para folha A4 em 1 página */
   .invoice-card,
   #orcamento-invoice-container,
   #invoice-printable-container {
@@ -59,6 +59,19 @@
     break-after: avoid !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
+  }
+
+  /* Escala de impressão: Fatura em 95% */
+  #invoice-printable-container,
+  .invoice-card {
+    transform: scale(0.95) !important;
+    transform-origin: top center !important;
+  }
+
+  /* Escala de impressão: Orçamento em 90% */
+  #orcamento-invoice-container {
+    transform: scale(0.90) !important;
+    transform-origin: top center !important;
   }
 }
 

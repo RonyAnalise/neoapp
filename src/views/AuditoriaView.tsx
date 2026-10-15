@@ -33,6 +33,7 @@ export const AuditoriaView: React.FC<AuditoriaViewProps> = ({ logs }) => {
       case 'delete_boleto':
       case 'delete_reading':
       case 'delete_invoice':
+      case 'delete_payment':
         return 'bg-rose-100 text-rose-800';
       case 'update_tariffs':
       case 'change_permissions':
@@ -54,6 +55,7 @@ export const AuditoriaView: React.FC<AuditoriaViewProps> = ({ logs }) => {
       delete_boleto: 'Exclusão de Boleto',
       delete_reading: 'Exclusão de Leitura',
       delete_invoice: 'Exclusão de Fatura',
+      delete_payment: 'Exclusão de Pagamento',
       update_tariffs: 'Alteração de Tarifas',
       update_company: 'Atualização da Empresa',
       change_permissions: 'Permissões de Usuário',
@@ -97,7 +99,6 @@ export const AuditoriaView: React.FC<AuditoriaViewProps> = ({ logs }) => {
               <tr>
                 <th className="py-3 px-4">Data e Hora</th>
                 <th className="py-3 px-4">Operação</th>
-                <th className="py-3 px-4">Documento Relacionado</th>
                 <th className="py-3 px-4">Responsável</th>
                 <th className="py-3 px-4">Justificativa</th>
                 <th className="py-3 px-4 text-right">Detalhes</th>
@@ -106,7 +107,7 @@ export const AuditoriaView: React.FC<AuditoriaViewProps> = ({ logs }) => {
             <tbody className="divide-y divide-gray-100">
               {filteredLogs.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-10 text-center text-gray-400">
+                  <td colSpan={5} className="py-10 text-center text-gray-400">
                     Nenhum registro de auditoria encontrado.
                   </td>
                 </tr>
@@ -121,9 +122,6 @@ export const AuditoriaView: React.FC<AuditoriaViewProps> = ({ logs }) => {
                         {getOpLabel(log.operationType)}
                       </span>
                     </td>
-                    <td className="py-3 px-4 font-mono font-medium text-gray-900">
-                      {log.collectionName}/{log.relatedDocument}
-                    </td>
                     <td className="py-3 px-4 text-gray-800 font-bold">
                       {log.user} <span className="font-normal text-gray-400 text-[10px]">({log.userEmail})</span>
                     </td>
@@ -133,9 +131,9 @@ export const AuditoriaView: React.FC<AuditoriaViewProps> = ({ logs }) => {
                     <td className="py-3 px-4 text-right">
                       <button
                         onClick={() => setSelectedLog(log)}
-                        className="text-xs font-bold text-emerald-700 hover:underline"
+                        className="text-xs font-bold text-emerald-700 hover:underline cursor-pointer"
                       >
-                        Ver Payload
+                        Ver Detalhes
                       </button>
                     </td>
                   </tr>

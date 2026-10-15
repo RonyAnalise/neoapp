@@ -183,6 +183,7 @@ export interface AuditoriaLog {
     | 'meter_swap'
     | 'delete_reading'
     | 'delete_invoice'
+    | 'delete_payment'
     | 'register_taxa_coelba'
     | 'delete_taxa_coelba';
   collectionName: string;

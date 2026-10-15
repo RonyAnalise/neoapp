@@ -375,7 +375,34 @@ function MainApp() {
         console.warn('Erro ao excluir arquivo de storage:', e);
       }
     }
+
+    // Regra: se apagar uma fatura paga (ou com pagamento), apagar também o pagamento confirmado
+    const linkedPayments = pagamentos.filter((p) => p.invoiceId === faturaId);
+    for (const payment of linkedPayments) {
+      try {
+        await deleteDoc(doc(db, 'pagamentos', payment.id));
+        await logAuditEvent({
+          operationType: 'delete_payment',
+          collectionName: 'pagamentos',
+          relatedDocument: payment.id,
+          user: userProfile?.name || 'Operador',
+          userEmail: userProfile?.email || '',
+          justification: `Pagamento excluído automaticamente devido à exclusão da fatura #${fat?.invoiceNumber || faturaId}`,
+        });
+      } catch (e) {
+        console.warn('Erro ao excluir pagamento vinculado à fatura:', e);
+      }
+    }
+
     await deleteDoc(doc(db, 'faturas', faturaId));
+    await logAuditEvent({
+      operationType: 'delete_invoice',
+      collectionName: 'faturas',
+      relatedDocument: fat?.invoiceNumber || faturaId,
+      user: userProfile?.name || 'Operador',
+      userEmail: userProfile?.email || '',
+      justification: `Fatura #${fat?.invoiceNumber || faturaId} excluída do banco de dados`,
+    });
   };
 
   // Limpeza de testes: faturas de outubro foram testes e não devem existir no sistema

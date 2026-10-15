@@ -24,6 +24,7 @@ import {
   formatReferencePeriod,
   getMonthName,
   calculateInvoice,
+  calculateDaysBetween,
 } from '../lib/calculations';
 import { ConfirmationModal } from '../components/ConfirmationModal';
 import { BoletoModal } from '../components/BoletoModal';
@@ -806,16 +807,21 @@ export const FaturasView: React.FC<FaturasViewProps> = ({
                     placeholder="41364"
                     className="w-full rounded-xl border border-emerald-300 p-2 font-mono font-black text-emerald-900 bg-white"
                   />
-                  <div className="mt-2">
+                  <div className="mt-2 flex items-center justify-between">
                     <label className="block text-[10px] text-gray-600">Data Leitura Atual</label>
-                    <input
-                      type="date"
-                      required
-                      value={currReadingDate}
-                      onChange={(e) => setCurrReadingDate(e.target.value)}
-                      className="w-full rounded-lg border border-gray-200 p-1.5 text-gray-700 bg-white text-[11px]"
-                    />
+                    {calculateDaysBetween(prevReadingDate, currReadingDate) !== null && (
+                      <span className="text-[10px] text-emerald-800 font-bold bg-emerald-100/80 px-2 py-0.5 rounded">
+                        {calculateDaysBetween(prevReadingDate, currReadingDate)} dias utilizados
+                      </span>
+                    )}
                   </div>
+                  <input
+                    type="date"
+                    required
+                    value={currReadingDate}
+                    onChange={(e) => setCurrReadingDate(e.target.value)}
+                    className="w-full rounded-lg border border-gray-200 p-1.5 text-gray-700 bg-white text-[11px] mt-1"
+                  />
                 </div>
               </div>
 
@@ -827,6 +833,11 @@ export const FaturasView: React.FC<FaturasViewProps> = ({
                       <span className="text-xs font-black text-[#156231]">CONSUMO APURADO:</span>
                       <span className="text-base font-black text-gray-900">
                         {formatNumberBr(previewCalc.consumptionKwh)} kWh
+                        {calculateDaysBetween(prevReadingDate, currReadingDate) !== null && (
+                          <span className="text-xs font-bold text-gray-500 ml-1.5">
+                            ({calculateDaysBetween(prevReadingDate, currReadingDate)} dias)
+                          </span>
+                        )}
                       </span>
                     </div>
                     <span className="text-[11px] text-gray-500 font-semibold">
@@ -1050,6 +1061,11 @@ export const FaturasView: React.FC<FaturasViewProps> = ({
 
             <p className="text-xs text-gray-600 mb-4 leading-relaxed">
               Tem certeza que deseja apagar esta fatura do sistema? O documento e qualquer boleto associado serão removidos permanentemente do banco de dados.
+              {invoiceToDelete.status === 'paid' && (
+                <span className="block text-rose-700 font-bold mt-2 bg-rose-50 p-2.5 rounded-xl border border-rose-200">
+                  ⚠️ Esta fatura já consta como PAGA. Ao confirmar, o registro de pagamento confirmado também será excluído do sistema.
+                </span>
+              )}
             </p>
 
             {deleteInvoiceError && (

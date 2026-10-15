@@ -131,3 +131,53 @@ export function getMonthName(monthNumber: number): string {
 export function formatReferencePeriod(month: number, year: number): string {
   return `${getMonthName(month)} / ${year}`;
 }
+
+/**
+ * Calculates the number of days between two dates.
+ * Handles strings like 'YYYY-MM-DD', 'DD/MM/YYYY', ISO strings, Date objects, or numeric timestamps.
+ */
+export function calculateDaysBetween(
+  startDate: string | Date | number | null | undefined,
+  endDate: string | Date | number | null | undefined
+): number | null {
+  if (!startDate || !endDate) return null;
+
+  const parseDate = (d: string | Date | number): Date | null => {
+    if (d instanceof Date) return isNaN(d.getTime()) ? null : d;
+    if (typeof d === 'number') {
+      const dt = new Date(d);
+      return isNaN(dt.getTime()) ? null : dt;
+    }
+    if (typeof d === 'string') {
+      const trimmed = d.trim();
+      if (!trimmed) return null;
+      // Format DD/MM/YYYY
+      if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(trimmed)) {
+        const [day, month, year] = trimmed.split('/').map(Number);
+        const dt = new Date(year, month - 1, day);
+        return isNaN(dt.getTime()) ? null : dt;
+      }
+      // Format YYYY-MM-DD (extract parts to avoid UTC timezone midnight offset)
+      if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) {
+        const parts = trimmed.split('T')[0].split('-').map(Number);
+        const dt = new Date(parts[0], parts[1] - 1, parts[2]);
+        return isNaN(dt.getTime()) ? null : dt;
+      }
+      const dt = new Date(trimmed);
+      return isNaN(dt.getTime()) ? null : dt;
+    }
+    return null;
+  };
+
+  const start = parseDate(startDate);
+  const end = parseDate(endDate);
+
+  if (!start || !end) return null;
+
+  const startUtc = Date.UTC(start.getFullYear(), start.getMonth(), start.getDate());
+  const endUtc = Date.UTC(end.getFullYear(), end.getMonth(), end.getDate());
+
+  const diffMs = endUtc - startUtc;
+  const days = Math.round(diffMs / (1000 * 60 * 60 * 24));
+  return Math.abs(days);
+}

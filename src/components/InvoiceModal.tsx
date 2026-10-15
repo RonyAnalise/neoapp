@@ -22,6 +22,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
   onOpenBoleto,
 }) => {
   const [downloading, setDownloading] = useState(false);
+  const [downloadFeedback, setDownloadFeedback] = useState<string | null>(null);
   const invoiceRef = useRef<HTMLDivElement>(null);
 
   if (!fatura || !cliente) return null;
@@ -29,10 +30,15 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
   const handleDownload = async () => {
     if (!invoiceRef.current) return;
     setDownloading(true);
+    setDownloadFeedback(null);
     try {
       await generateInvoicePdf(invoiceRef.current, fatura.invoiceNumber);
+      setDownloadFeedback('PDF gerado com sucesso!');
+      setTimeout(() => setDownloadFeedback(null), 3500);
     } catch (err) {
-      alert('Erro ao gerar o PDF da fatura.');
+      console.error('Erro ao gerar PDF da fatura:', err);
+      setDownloadFeedback('Erro ao gerar o PDF da fatura.');
+      setTimeout(() => setDownloadFeedback(null), 4000);
     } finally {
       setDownloading(false);
     }
@@ -91,6 +97,16 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
               <Printer className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Imprimir</span>
             </button>
+
+            {downloadFeedback && (
+              <span className={`text-xs font-bold px-2.5 py-1 rounded-lg border ${
+                downloadFeedback.includes('Erro')
+                  ? 'bg-rose-50 text-rose-700 border-rose-200'
+                  : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+              }`}>
+                {downloadFeedback}
+              </span>
+            )}
 
             <button
               onClick={handleDownload}

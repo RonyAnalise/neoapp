@@ -7,7 +7,7 @@ export async function generateInvoicePdf(element: HTMLElement, invoiceNumber: st
     const canvas = await html2canvas(element, {
       scale: 2, // 2x crisp retina resolution
       useCORS: true,
-      allowTaint: true,
+      allowTaint: false, // CRITICAL: Never allow taint so toDataURL can export safely
       logging: false,
       backgroundColor: '#1b7a3e',
       scrollX: 0,
@@ -46,7 +46,21 @@ export async function generateInvoicePdf(element: HTMLElement, invoiceNumber: st
     const yOffset = margin + (availHeight - renderHeight) / 2;
 
     pdf.addImage(imgData, 'JPEG', xOffset, yOffset, renderWidth, renderHeight);
-    pdf.save(`Fatura_NeoEnergia_${invoiceNumber.replace(/\s+/g, '_')}.pdf`);
+
+    // Disparo direto e confiável de download do arquivo PDF (funciona em iframes e todos os navegadores)
+    const fileName = `Fatura_NeoEnergia_${invoiceNumber.replace(/\s+/g, '_')}.pdf`;
+    const blob = pdf.output('blob');
+    const blobUrl = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = blobUrl;
+    link.download = fileName;
+    link.style.display = 'none';
+    document.body.appendChild(link);
+    link.click();
+    setTimeout(() => {
+      document.body.removeChild(link);
+      URL.revokeObjectURL(blobUrl);
+    }, 1500);
   } catch (error) {
     console.error('Erro ao gerar PDF da fatura:', error);
     throw new Error('Não foi possível gerar o PDF. Verifique se a visualização está carregada.');

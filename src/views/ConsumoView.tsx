@@ -21,6 +21,7 @@ import {
   getMonthName,
   calculateInvoice,
   formatCurrency,
+  calculateDaysBetween,
 } from '../lib/calculations';
 import { logAuditEvent } from '../lib/auditService';
 import { useAuth } from '../hooks/useAuth';
@@ -411,6 +412,11 @@ export const ConsumoView: React.FC<ConsumoViewProps> = ({
                         <span className="inline-block px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 font-black border border-emerald-200">
                           {formatNumberBr(lei.calculatedConsumption)} kWh
                         </span>
+                        {calculateDaysBetween(lei.previousReadingDate, lei.currentReadingDate) !== null && (
+                          <span className="block text-[10px] text-gray-500 font-medium mt-0.5">
+                            {calculateDaysBetween(lei.previousReadingDate, lei.currentReadingDate)} dias
+                          </span>
+                        )}
                       </td>
                       <td className="py-3 px-4 text-gray-500">{formatDateBr(lei.createdAt)}</td>
                       <td className="py-3 px-4 text-center">

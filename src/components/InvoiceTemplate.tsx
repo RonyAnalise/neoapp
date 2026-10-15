@@ -5,6 +5,7 @@ import {
   formatNumberBr,
   formatDateBr,
   formatReferencePeriod,
+  calculateDaysBetween,
   MONTH_NAMES_BR,
 } from '../lib/calculations';
 
@@ -48,6 +49,11 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
   });
   // Make sure current invoice is present
   monthConsumptionMap[fatura.referenceMonth] = fatura.consumptionKwh;
+
+  const daysBetweenReadings = calculateDaysBetween(
+    fatura.previousReadingDate,
+    fatura.currentReadingDate
+  );
 
   const phoneDisplay = empresa.phone || '77-992107440';
   const warningText = empresa.warningPaymentText || `TEM ${empresa.paymentDueDays || 15} DIAS PARA EFETUAR O PAGAMENTO.`;
@@ -300,7 +306,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
               <span className="text-[11px] font-black text-[#156231] block">LEITURA DESTE MÊS</span>
             </div>
 
-            <div className="my-1">
+            <div className="my-0.5">
               <span className="text-[10px] font-black text-gray-600 block uppercase">LEITURA INICIAL</span>
               <span className="text-[11px] font-bold text-gray-800 block">
                 {formatDateBr(fatura.previousReadingDate)}
@@ -310,7 +316,17 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
               </span>
             </div>
 
-            <div className="border-t border-emerald-100 pt-1">
+            {/* Qtd de Dias Utilizados entre Leitura Anterior e Atual */}
+            <div className="border-t border-b border-emerald-100 py-1 my-0.5 bg-emerald-50/70 rounded-md">
+              <span className="text-[9px] font-black text-gray-600 block uppercase tracking-wider">
+                DIAS UTILIZADOS
+              </span>
+              <span className="text-xs sm:text-sm font-black text-[#156231] block">
+                {daysBetweenReadings !== null ? `${daysBetweenReadings} DIAS` : '-'}
+              </span>
+            </div>
+
+            <div className="my-0.5">
               <span className="text-[10px] font-black text-gray-600 block uppercase">LEITURA FINAL</span>
               <span className="text-[11px] font-bold text-gray-800 block">
                 {formatDateBr(fatura.currentReadingDate)}

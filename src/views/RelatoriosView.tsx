@@ -217,7 +217,6 @@ export const RelatoriosView: React.FC<RelatoriosViewProps> = ({
         'Competencia',
         'Consumo_kWh',
         'Valor_Neo_R$',
-        'Ref_Coelba_R$',
         'Economia_R$',
         'Vencimento',
         'Status',
@@ -231,7 +230,6 @@ export const RelatoriosView: React.FC<RelatoriosViewProps> = ({
         `${f.referenceMonth}/${f.referenceYear}`,
         f.consumptionKwh,
         f.totalToPay,
-        f.coelbaEstimateAmount,
         f.savingsAmount,
         f.dueDate,
         f.status === 'paid' ? 'Paga' : f.status === 'overdue' ? 'Vencida' : 'Pendente',
@@ -246,7 +244,6 @@ export const RelatoriosView: React.FC<RelatoriosViewProps> = ({
         '',
         totalConsumo,
         totalNeo,
-        totalCoelba,
         totalEconomia,
         '',
         '',
@@ -581,7 +578,6 @@ export const RelatoriosView: React.FC<RelatoriosViewProps> = ({
                   <th className="py-2.5 px-2 text-center">Competência</th>
                   <th className="py-2.5 px-2 text-right">Consumo</th>
                   <th className="py-2.5 px-2 text-right">Neo Energia</th>
-                  <th className="py-2.5 px-2 text-right">Ref. Coelba</th>
                   <th className="py-2.5 px-2 text-right">Economia</th>
                   <th className="py-2.5 px-2 text-center">Vencimento</th>
                   <th className="py-2.5 px-3 text-center">Status</th>
@@ -590,7 +586,7 @@ export const RelatoriosView: React.FC<RelatoriosViewProps> = ({
               <tbody className="divide-y divide-gray-100">
                 {relevantInvoices.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="py-12 text-center text-gray-400">
+                    <td colSpan={9} className="py-12 text-center text-gray-400">
                       {searchTerm
                         ? `Nenhum registro encontrado para a busca "${searchTerm}" com os filtros atuais.`
                         : 'Nenhum registro encontrado para este relatório (faturas canceladas são excluídas).'}
@@ -616,9 +612,6 @@ export const RelatoriosView: React.FC<RelatoriosViewProps> = ({
                       </td>
                       <td className="py-2 px-2 text-right font-bold text-emerald-800 whitespace-nowrap">
                         {formatCurrency(f.totalToPay)}
-                      </td>
-                      <td className="py-2 px-2 text-right text-gray-700 whitespace-nowrap">
-                        {formatCurrency(f.coelbaEstimateAmount)}
                       </td>
                       <td className="py-2 px-2 text-right font-bold text-orange-600 whitespace-nowrap">
                         {formatCurrency(f.savingsAmount)}
@@ -660,9 +653,6 @@ export const RelatoriosView: React.FC<RelatoriosViewProps> = ({
                     </td>
                     <td className="py-2.5 px-2 text-right font-black text-emerald-800 whitespace-nowrap">
                       {formatCurrency(totalNeo)}
-                    </td>
-                    <td className="py-2.5 px-2 text-right font-black text-gray-800 whitespace-nowrap">
-                      {formatCurrency(totalCoelba)}
                     </td>
                     <td className="py-2.5 px-2 text-right font-black text-orange-600 whitespace-nowrap">
                       {formatCurrency(totalEconomia)}
