@@ -128,11 +128,15 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
       if (c.phone || c.whatsapp) {
         setPhoneForZap(c.whatsapp || c.phone || '');
       }
-      if (c.customNeoTariff) {
+      if (c.customNeoTariff && c.customNeoTariff > 0) {
         handleNeoTariffChange(c.customNeoTariff);
+      } else {
+        handleNeoTariffChange(defaultNeoTariff);
       }
-      if (c.customCoelbaTariff) {
+      if (c.customCoelbaTariff && c.customCoelbaTariff > 0) {
         handleCoelbaTariffChange(c.customCoelbaTariff);
+      } else {
+        handleCoelbaTariffChange(defaultCoelbaTariff);
       }
     }
   };
@@ -357,7 +361,10 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
                     step="0.0001"
                     min="0"
                     value={coelbaTariff || ''}
-                    onChange={(e) => handleCoelbaTariffChange(Number(e.target.value))}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      handleCoelbaTariffChange(val === '' ? defaultCoelbaTariff : Number(val));
+                    }}
                     className="w-full rounded-lg border border-gray-300 bg-white pl-9 pr-3 py-1.5 text-xs font-bold text-gray-700 focus:border-rose-600 focus:outline-none"
                   />
                 </div>
@@ -407,7 +414,10 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
                     step="0.0001"
                     min="0"
                     value={neoTariff || ''}
-                    onChange={(e) => handleNeoTariffChange(Number(e.target.value))}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      handleNeoTariffChange(val === '' ? defaultNeoTariff : Number(val));
+                    }}
                     className="w-full rounded-lg border border-gray-300 bg-white pl-9 pr-3 py-1.5 text-xs font-bold text-gray-700 focus:border-emerald-600 focus:outline-none"
                   />
                 </div>
@@ -604,14 +614,14 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
           <div
             ref={invoicePrintRef}
             id="orcamento-invoice-container"
-            className="invoice-card bg-[#1b7a3e] p-3 sm:p-5 text-gray-900 rounded-3xl shadow-2xl font-sans w-full print:p-2.5 print:rounded-2xl print:shadow-none print:m-0 print:w-full print:max-w-none"
+            className="invoice-card bg-[#1b7a3e] p-3 sm:p-5 text-gray-900 rounded-3xl shadow-2xl font-sans w-full print:p-0 print:rounded-none print:shadow-none print:m-0 print:w-[210mm] print:h-[297mm] print:max-w-none"
             style={{
               maxWidth: '820px',
               background: 'linear-gradient(180deg, #1d7b3f 0%, #156231 100%)',
             }}
           >
             {/* Outer White Card with Rounded Corners */}
-            <div className="bg-white rounded-[26px] p-4 sm:p-6 shadow-inner relative flex flex-col justify-between h-full print:p-3.5 print:rounded-xl">
+            <div className="bg-white rounded-[26px] p-4 sm:p-6 shadow-inner relative flex flex-col justify-between h-full print:rounded-none print:shadow-none">
               {/* Selo Superior de Orçamento / Proposta */}
               <div className="mb-2 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 border-b border-emerald-100 pb-2">
                 <div className="flex flex-wrap items-center gap-2">

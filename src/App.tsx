@@ -9,6 +9,7 @@ import {
   getDoc,
   deleteDoc,
   writeBatch,
+  deleteField,
 } from 'firebase/firestore';
 import { ref, deleteObject } from 'firebase/storage';
 import { db, storage } from './lib/firebase';
@@ -323,15 +324,53 @@ function MainApp() {
 
   // Handlers for Firestore actions
   const handleSaveCliente = async (clienteData: Partial<Cliente>, isNew: boolean) => {
+    // Sanitização completa para o Firestore (remove propriedades 'undefined' que causam erro na SDK)
+    const cleanData: Record<string, any> = {};
+    for (const [key, val] of Object.entries(clienteData)) {
+      if (val !== undefined) {
+        cleanData[key] = val;
+      }
+    }
+
+    // Tratamento de Tarifa Neo: se em branco ou zero, não salva no doc (ou remove se edição) para usar o padrão geral
+    const neoNum = cleanData.customNeoTariff !== undefined && cleanData.customNeoTariff !== null && cleanData.customNeoTariff !== ''
+      ? Number(cleanData.customNeoTariff)
+      : null;
+    if (neoNum !== null && !isNaN(neoNum) && neoNum > 0) {
+      cleanData.customNeoTariff = neoNum;
+    } else {
+      if (isNew) {
+        delete cleanData.customNeoTariff;
+      } else {
+        cleanData.customNeoTariff = deleteField();
+      }
+    }
+
+    // Tratamento de Tarifa Coelba: se em branco ou zero, não salva no doc (ou remove se edição) para usar o padrão geral
+    const coelbaNum = cleanData.customCoelbaTariff !== undefined && cleanData.customCoelbaTariff !== null && cleanData.customCoelbaTariff !== ''
+      ? Number(cleanData.customCoelbaTariff)
+      : null;
+    if (coelbaNum !== null && !isNaN(coelbaNum) && coelbaNum > 0) {
+      cleanData.customCoelbaTariff = coelbaNum;
+    } else {
+      if (isNew) {
+        delete cleanData.customCoelbaTariff;
+      } else {
+        cleanData.customCoelbaTariff = deleteField();
+      }
+    }
+
     if (isNew) {
       const newRef = doc(collection(db, 'clientes'));
       await setDoc(newRef, {
-        ...clienteData,
+        ...cleanData,
         createdAt: new Date().toISOString(),
       });
     } else if (clienteData.id) {
-      await updateDoc(doc(db, 'clientes', clienteData.id), {
-        ...clienteData,
+      const docId = clienteData.id;
+      delete cleanData.id;
+      await updateDoc(doc(db, 'clientes', docId), {
+        ...cleanData,
         updatedAt: new Date().toISOString(),
       });
     }

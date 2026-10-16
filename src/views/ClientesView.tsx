@@ -179,7 +179,37 @@ export const ClientesView: React.FC<ClientesViewProps> = ({
     setSaving(true);
     try {
       const isNew = !editingCliente;
-      await onSaveCliente(formData, isNew);
+
+      // Sanitiza payload: campos de tarifas em branco usam padrão geral sem erro de undefined
+      const payload: Partial<Cliente> = { ...formData };
+
+      const parsedNeo =
+        payload.customNeoTariff !== undefined &&
+        payload.customNeoTariff !== null &&
+        (payload.customNeoTariff as any) !== ''
+          ? Number(payload.customNeoTariff)
+          : undefined;
+
+      if (parsedNeo !== undefined && !isNaN(parsedNeo) && parsedNeo > 0) {
+        payload.customNeoTariff = parsedNeo;
+      } else {
+        delete payload.customNeoTariff;
+      }
+
+      const parsedCoelba =
+        payload.customCoelbaTariff !== undefined &&
+        payload.customCoelbaTariff !== null &&
+        (payload.customCoelbaTariff as any) !== ''
+          ? Number(payload.customCoelbaTariff)
+          : undefined;
+
+      if (parsedCoelba !== undefined && !isNaN(parsedCoelba) && parsedCoelba > 0) {
+        payload.customCoelbaTariff = parsedCoelba;
+      } else {
+        delete payload.customCoelbaTariff;
+      }
+
+      await onSaveCliente(payload, isNew);
 
       await logAuditEvent({
         operationType: isNew ? 'create_client' : 'edit_client',
@@ -187,7 +217,7 @@ export const ClientesView: React.FC<ClientesViewProps> = ({
         relatedDocument: editingCliente?.id || 'new',
         user: userProfile?.name || 'Sistema',
         userEmail: userProfile?.email || '',
-        newData: formData,
+        newData: payload,
         previousData: editingCliente || undefined,
       });
 
@@ -621,6 +651,7 @@ export const ClientesView: React.FC<ClientesViewProps> = ({
                     <input
                       type="number"
                       step="0.0001"
+                      min="0"
                       value={formData.customNeoTariff ?? ''}
                       onChange={(e) =>
                         setFormData({
@@ -645,6 +676,7 @@ export const ClientesView: React.FC<ClientesViewProps> = ({
                     <input
                       type="number"
                       step="0.0001"
+                      min="0"
                       value={formData.customCoelbaTariff ?? ''}
                       onChange={(e) =>
                         setFormData({
