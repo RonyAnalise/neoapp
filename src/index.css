@@ -2,7 +2,7 @@
 
 @media print {
   @page {
-    size: A4 portrait;
+    size: auto;
     margin: 0 !important;
   }
 
@@ -20,7 +20,10 @@
   }
 
   #root,
+  #root > div,
+  #root > div > div,
   main {
+    display: block !important;
     width: 100% !important;
     max-width: 100% !important;
     height: auto !important;
@@ -51,13 +54,13 @@
     display: none !important;
   }
 
-  /* FATURA E ORÇAMENTO: Folha única A4 210x297mm Verde com overflow travado */
+  /* FATURA E ORÇAMENTO: Folha única A4 210x296mm Verde com overflow travado e sem 2ª página */
   body:has(#invoice-printable-container),
   body:has(#orcamento-invoice-container) {
     width: 210mm !important;
-    height: 297mm !important;
-    min-height: 297mm !important;
-    max-height: 297mm !important;
+    height: 296mm !important;
+    min-height: 296mm !important;
+    max-height: 296mm !important;
     margin: 0 !important;
     padding: 0 !important;
     background: #156231 !important;
@@ -67,8 +70,8 @@
   body:has(#invoice-printable-container) #root,
   body:has(#orcamento-invoice-container) #root {
     width: 210mm !important;
-    height: 297mm !important;
-    max-height: 297mm !important;
+    height: 296mm !important;
+    max-height: 296mm !important;
     overflow: hidden !important;
     margin: 0 !important;
     padding: 0 !important;
@@ -79,8 +82,8 @@
     padding: 0 !important;
     margin: 0 !important;
     width: 210mm !important;
-    height: 297mm !important;
-    max-height: 297mm !important;
+    height: 296mm !important;
+    max-height: 296mm !important;
     overflow: hidden !important;
     background: transparent !important;
   }
@@ -90,18 +93,24 @@
     width: 100% !important;
     max-width: 100% !important;
     margin: 0 !important;
-    padding: 6mm 8mm !important;
+    padding: 6mm 6mm !important;
     box-sizing: border-box !important;
     background: #ffffff !important;
     color: #111827 !important;
     overflow: visible !important;
   }
 
+  .relatorio-printable-view * {
+    overflow: visible !important;
+  }
+
   .relatorio-printable-view table {
     width: 100% !important;
+    max-width: 100% !important;
     table-layout: fixed !important;
     border-collapse: collapse !important;
     overflow: visible !important;
+    margin: 0 !important;
   }
 
   .relatorio-printable-view thead {
@@ -120,6 +129,7 @@
   .relatorio-printable-view th,
   .relatorio-printable-view td {
     box-sizing: border-box !important;
+    word-break: break-word !important;
   }
 
   /* Fatura e Orçamento: ocupam 100% da folha A4 em UMA ÚNICA PÁGINA */
@@ -132,9 +142,9 @@
     width: 210mm !important;
     min-width: 210mm !important;
     max-width: 210mm !important;
-    height: 297mm !important;
-    min-height: 297mm !important;
-    max-height: 297mm !important;
+    height: 296mm !important;
+    min-height: 296mm !important;
+    max-height: 296mm !important;
     margin: 0 !important;
     padding: 2.5mm 3.5mm !important;
     border-radius: 0 !important;

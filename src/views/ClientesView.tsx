@@ -171,8 +171,8 @@ export const ClientesView: React.FC<ClientesViewProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.name?.trim() || !formData.cpfCnpj?.trim()) {
-      alert('Preencha os campos obrigatórios (Nome e CPF/CNPJ).');
+    if (!formData.name?.trim()) {
+      alert('Preencha o Nome Completo ou Razão Social do cliente.');
       return;
     }
 
@@ -182,34 +182,51 @@ export const ClientesView: React.FC<ClientesViewProps> = ({
 
       // Sanitiza payload: campos de tarifas em branco usam padrão geral sem erro de undefined
       const payload: Partial<Cliente> = { ...formData };
+      payload.name = (formData.name || '').trim();
+      payload.cpfCnpj = formData.cpfCnpj?.trim() || '';
 
-      const parsedNeo =
+      const neoVal =
         payload.customNeoTariff !== undefined &&
         payload.customNeoTariff !== null &&
         (payload.customNeoTariff as any) !== ''
           ? Number(payload.customNeoTariff)
-          : undefined;
+          : null;
 
-      if (parsedNeo !== undefined && !isNaN(parsedNeo) && parsedNeo > 0) {
-        payload.customNeoTariff = parsedNeo;
+      if (neoVal !== null && !isNaN(neoVal) && neoVal > 0) {
+        payload.customNeoTariff = neoVal;
       } else {
         delete payload.customNeoTariff;
       }
 
-      const parsedCoelba =
+      const coelbaVal =
         payload.customCoelbaTariff !== undefined &&
         payload.customCoelbaTariff !== null &&
         (payload.customCoelbaTariff as any) !== ''
           ? Number(payload.customCoelbaTariff)
-          : undefined;
+          : null;
 
-      if (parsedCoelba !== undefined && !isNaN(parsedCoelba) && parsedCoelba > 0) {
-        payload.customCoelbaTariff = parsedCoelba;
+      if (coelbaVal !== null && !isNaN(coelbaVal) && coelbaVal > 0) {
+        payload.customCoelbaTariff = coelbaVal;
       } else {
         delete payload.customCoelbaTariff;
       }
 
+      // Remove quaisquer propriedades que tenham ficado como undefined
+      for (const [k, v] of Object.entries(payload)) {
+        if (v === undefined) {
+          delete (payload as any)[k];
+        }
+      }
+
       await onSaveCliente(payload, isNew);
+
+      // Prepara objeto seguro para trilha de auditoria
+      const auditPayload: Record<string, any> = {};
+      for (const [k, v] of Object.entries(payload)) {
+        if (v !== undefined) {
+          auditPayload[k] = v;
+        }
+      }
 
       await logAuditEvent({
         operationType: isNew ? 'create_client' : 'edit_client',
@@ -217,7 +234,7 @@ export const ClientesView: React.FC<ClientesViewProps> = ({
         relatedDocument: editingCliente?.id || 'new',
         user: userProfile?.name || 'Sistema',
         userEmail: userProfile?.email || '',
-        newData: payload,
+        newData: auditPayload,
         previousData: editingCliente || undefined,
       });
 
@@ -467,13 +484,12 @@ export const ClientesView: React.FC<ClientesViewProps> = ({
                 </div>
 
                 <div>
-                  <label className="block font-bold text-gray-700 mb-1">CPF ou CNPJ *</label>
+                  <label className="block font-bold text-gray-700 mb-1">CPF ou CNPJ (Opcional)</label>
                   <input
                     type="text"
-                    required
                     value={formData.cpfCnpj || ''}
                     onChange={(e) => setFormData({ ...formData, cpfCnpj: e.target.value })}
-                    placeholder="000.000.000-00"
+                    placeholder="000.000.000-00 (opcional)"
                     className="w-full rounded-xl border border-gray-300 p-2.5 text-gray-900 focus:border-emerald-600 focus:outline-none"
                   />
                 </div>
