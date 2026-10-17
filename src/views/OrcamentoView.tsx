@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import html2canvas from 'html2canvas';
 import {
   Calculator,
   Printer,
@@ -13,6 +14,8 @@ import {
   TrendingDown,
   Percent,
   RefreshCw,
+  Download,
+  Image as ImageIcon,
 } from 'lucide-react';
 import { Cliente, EmpresaConfig, EnergyTariffs, Fatura } from '../types';
 import {
@@ -71,6 +74,8 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
   // Estados de ações
   const [whatsappModalOpen, setWhatsappModalOpen] = useState(false);
   const [copiedSuccess, setCopiedSuccess] = useState(false);
+  const [copiedImageSuccess, setCopiedImageSuccess] = useState(false);
+  const [generatingImage, setGeneratingImage] = useState(false);
   const [lastActionStatus, setLastActionStatus] = useState<string>('');
 
   // Ao alterar o consumo, sincroniza totais mantendo as tarifas unitárias
@@ -207,8 +212,72 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
     setWhatsappModalOpen(true);
   };
 
-  // Disparo do WhatsApp com o texto da proposta
-  const handleSendWhatsapp = () => {
+  // Captura o elemento visual da fatura (#orcamento-invoice-container) gerando imagem em alta resolução
+  const captureInvoiceBlob = async (): Promise<Blob | null> => {
+    if (!invoicePrintRef.current) return null;
+    const canvas = await html2canvas(invoicePrintRef.current, {
+      scale: 2, // Resolução nítida para leitura dos dados e valores
+      useCORS: true,
+      allowTaint: false,
+      logging: false,
+      backgroundColor: '#1b7a3e',
+      scrollX: 0,
+      scrollY: 0,
+    });
+    return new Promise((resolve) => canvas.toBlob(resolve, 'image/png', 0.95));
+  };
+
+  // Copia a imagem renderizada para a Área de Transferência (Clipboard)
+  const copyImageToClipboard = async () => {
+    try {
+      setGeneratingImage(true);
+      const blob = await captureInvoiceBlob();
+      if (!blob) throw new Error('Não foi possível gerar a imagem da fatura.');
+
+      if (navigator.clipboard && window.ClipboardItem) {
+        const item = new ClipboardItem({ 'image/png': blob });
+        await navigator.clipboard.write([item]);
+        setCopiedImageSuccess(true);
+        setLastActionStatus('✅ Imagem da fatura copiada! Basta teclar Ctrl+V no WhatsApp para colar.');
+        setTimeout(() => setCopiedImageSuccess(false), 3500);
+      } else {
+        await downloadInvoiceImage();
+      }
+    } catch (err) {
+      console.warn('Erro ao copiar imagem:', err);
+      await downloadInvoiceImage();
+    } finally {
+      setGeneratingImage(false);
+      setTimeout(() => setLastActionStatus(''), 5000);
+    }
+  };
+
+  // Baixa o arquivo PNG da imagem da fatura
+  const downloadInvoiceImage = async () => {
+    try {
+      setGeneratingImage(true);
+      const blob = await captureInvoiceBlob();
+      if (!blob) throw new Error('Falha ao renderizar a imagem.');
+      const fileName = `Orcamento_NeoEnergia_${(clientName || 'Cliente').replace(/\s+/g, '_')}.png`;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      setLastActionStatus('✅ Imagem do orçamento baixada com sucesso!');
+    } catch (err) {
+      setLastActionStatus('Erro ao gerar arquivo de imagem.');
+    } finally {
+      setGeneratingImage(false);
+      setTimeout(() => setLastActionStatus(''), 4000);
+    }
+  };
+
+  // Disparo do WhatsApp com imagem e texto da proposta
+  const handleSendWhatsapp = async () => {
     const cleanPhone = phoneForZap.replace(/\D/g, '');
     if (!cleanPhone || cleanPhone.length < 10) {
       setLastActionStatus('Atenção: Digite o WhatsApp com DDD (ex: 73999998888).');
@@ -219,16 +288,70 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
     const msg = generateWhatsAppMessage();
     const zapUrl = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(msg)}`;
 
-    const link = document.createElement('a');
-    link.href = zapUrl;
-    link.target = '_blank';
-    link.rel = 'noopener noreferrer';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    setGeneratingImage(true);
+    try {
+      const blob = await captureInvoiceBlob();
+      const fileName = `Orcamento_NeoEnergia_${(clientName || 'Cliente').replace(/\s+/g, '_')}.png`;
 
-    setLastActionStatus('WhatsApp aberto com a proposta de orçamento!');
-    setTimeout(() => setLastActionStatus(''), 4000);
+      // 1. Em dispositivos com Web Share API (celulares Android, iPhone/iOS e navegadores compatíveis):
+      // Permite anexar a imagem PNG diretamente no WhatsApp
+      if (blob && navigator.canShare) {
+        const file = new File([blob], fileName, { type: 'image/png' });
+        if (navigator.canShare({ files: [file] })) {
+          await navigator.share({
+            files: [file],
+            text: msg,
+            title: 'Orçamento Neo Energia',
+          });
+          setLastActionStatus('✅ Orçamento com imagem compartilhada com sucesso no WhatsApp!');
+          setWhatsappModalOpen(false);
+          return;
+        }
+      }
+
+      // 2. No Desktop / WhatsApp Web:
+      // O protocolo wa.me não aceita binários via URL, então copiamos a imagem para a Área de Transferência
+      // e também realizamos o download automático para envio imediato (Ctrl+V)
+      if (blob) {
+        try {
+          if (navigator.clipboard && window.ClipboardItem) {
+            const item = new ClipboardItem({ 'image/png': blob });
+            await navigator.clipboard.write([item]);
+          }
+        } catch (clipErr) {
+          console.warn('Clipboard write image não suportado:', clipErr);
+        }
+
+        const url = URL.createObjectURL(blob);
+        const downloadLink = document.createElement('a');
+        downloadLink.href = url;
+        downloadLink.download = fileName;
+        document.body.appendChild(downloadLink);
+        downloadLink.click();
+        document.body.removeChild(downloadLink);
+        URL.revokeObjectURL(url);
+      }
+
+      // Abre a conversa no WhatsApp Web com o texto pré-carregado
+      const link = document.createElement('a');
+      link.href = zapUrl;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      setLastActionStatus('📸 Imagem copiada e baixada! Ao abrir o WhatsApp, basta teclar Ctrl+V para colar a imagem na conversa.');
+      setWhatsappModalOpen(false);
+    } catch (err: unknown) {
+      if ((err as Error)?.name !== 'AbortError') {
+        window.open(zapUrl, '_blank');
+        setLastActionStatus('WhatsApp aberto com a proposta de orçamento!');
+      }
+    } finally {
+      setGeneratingImage(false);
+      setTimeout(() => setLastActionStatus(''), 7000);
+    }
   };
 
 
@@ -1047,25 +1170,68 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
               </div>
             </div>
 
+            {/* Dica de Envio com Imagem */}
+            <div className="rounded-xl bg-emerald-50/80 border border-emerald-200 p-2.5 text-[11px] text-emerald-950 flex items-start gap-2">
+              <ImageIcon className="w-4 h-4 text-emerald-700 shrink-0 mt-0.5" />
+              <span>
+                <strong>Envio com Imagem da Fatura:</strong> A imagem em alta definição da impressão é gerada automaticamente. No celular ela vai anexada diretamente no WhatsApp; no computador ela é copiada para você colar com <strong>Ctrl+V</strong> no chat!
+              </span>
+            </div>
+
             {/* Ações do Modal */}
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-2">
-              <button
-                type="button"
-                onClick={copyTextToClipboard}
-                className="flex items-center justify-center gap-1.5 rounded-xl border border-gray-300 bg-white hover:bg-gray-50 px-3.5 py-2.5 text-xs font-bold text-gray-700 transition cursor-pointer"
-                title="Copiar texto da mensagem"
-              >
-                {copiedSuccess ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
-                <span>{copiedSuccess ? 'Texto Copiado!' : 'Copiar Texto'}</span>
-              </button>
+            <div className="space-y-2 pt-1">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  onClick={copyTextToClipboard}
+                  disabled={generatingImage}
+                  className="flex items-center justify-center gap-1.5 rounded-xl border border-gray-300 bg-white hover:bg-gray-50 px-3 py-2 text-xs font-bold text-gray-700 transition cursor-pointer"
+                  title="Copiar texto da mensagem"
+                >
+                  {copiedSuccess ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
+                  <span>{copiedSuccess ? 'Texto Copiado!' : 'Copiar Texto'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={copyImageToClipboard}
+                  disabled={generatingImage}
+                  className="flex items-center justify-center gap-1.5 rounded-xl border border-gray-300 bg-white hover:bg-gray-50 px-3 py-2 text-xs font-bold text-gray-700 transition cursor-pointer"
+                  title="Copiar imagem para colar no WhatsApp Web com Ctrl+V"
+                >
+                  {copiedImageSuccess ? <Check className="w-4 h-4 text-emerald-600" /> : <ImageIcon className="w-4 h-4 text-emerald-600" />}
+                  <span>{copiedImageSuccess ? 'Imagem Copiada!' : 'Copiar Imagem (Ctrl+V)'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={downloadInvoiceImage}
+                  disabled={generatingImage}
+                  className="flex items-center justify-center gap-1.5 rounded-xl border border-gray-300 bg-white hover:bg-gray-50 px-3 py-2 text-xs font-bold text-gray-700 transition cursor-pointer"
+                  title="Baixar arquivo de imagem PNG do orçamento"
+                >
+                  <Download className="w-4 h-4 text-blue-600" />
+                  <span>Baixar PNG</span>
+                </button>
+              </div>
 
               <button
                 type="button"
                 onClick={handleSendWhatsapp}
-                className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-[#25D366] hover:bg-[#20ba59] text-white font-black px-4 py-2.5 text-xs sm:text-sm transition shadow-md cursor-pointer"
+                disabled={generatingImage}
+                className="w-full flex items-center justify-center gap-2 rounded-xl bg-[#25D366] hover:bg-[#20ba59] text-white font-black px-4 py-3 text-xs sm:text-sm transition shadow-md cursor-pointer disabled:opacity-60"
               >
-                <Phone className="w-4 h-4 fill-white" />
-                <span>Abrir WhatsApp com Proposta ➜</span>
+                {generatingImage ? (
+                  <>
+                    <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    <span>Gerando Imagem da Fatura...</span>
+                  </>
+                ) : (
+                  <>
+                    <Phone className="w-4 h-4 fill-white" />
+                    <span>Disparar WhatsApp com Imagem da Fatura ➜</span>
+                  </>
+                )}
               </button>
             </div>
           </div>
