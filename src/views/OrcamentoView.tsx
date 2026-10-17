@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import html2canvas from 'html2canvas';
+import * as htmlToImage from 'html-to-image';
 import {
   Calculator,
   Printer,
@@ -212,40 +213,103 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
     setWhatsappModalOpen(true);
   };
 
+  // Função utilitária para download confiável de Blob
+  const downloadBlobFile = (blob: Blob, fileName: string) => {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    link.style.display = 'none';
+    document.body.appendChild(link);
+    link.click();
+    setTimeout(() => {
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    }, 2000);
+  };
+
   // Captura o elemento visual da fatura (#orcamento-invoice-container) gerando imagem em alta resolução
   const captureInvoiceBlob = async (): Promise<Blob | null> => {
     if (!invoicePrintRef.current) return null;
-    const canvas = await html2canvas(invoicePrintRef.current, {
-      scale: 2, // Resolução nítida para leitura dos dados e valores
-      useCORS: true,
-      allowTaint: false,
-      logging: false,
-      backgroundColor: '#1b7a3e',
-      scrollX: 0,
-      scrollY: 0,
-    });
-    return new Promise((resolve) => canvas.toBlob(resolve, 'image/png', 0.95));
+
+    // Estratégia 1: html-to-image toBlob (Suporta Tailwind v4, oklch e alta DPI perfeitamente)
+    try {
+      const blob = await htmlToImage.toBlob(invoicePrintRef.current, {
+        quality: 0.98,
+        pixelRatio: 2,
+        backgroundColor: '#1b7a3e',
+        cacheBust: true,
+      });
+      if (blob && blob.size > 0) return blob;
+    } catch (err) {
+      console.warn('htmlToImage.toBlob falhou, tentando toPng...', err);
+    }
+
+    // Estratégia 2: html-to-image toPng (Data URL -> Blob)
+    try {
+      const dataUrl = await htmlToImage.toPng(invoicePrintRef.current, {
+        quality: 0.98,
+        pixelRatio: 2,
+        backgroundColor: '#1b7a3e',
+        cacheBust: true,
+      });
+      const res = await fetch(dataUrl);
+      const blob = await res.blob();
+      if (blob && blob.size > 0) return blob;
+    } catch (err) {
+      console.warn('htmlToImage.toPng falhou, tentando html2canvas...', err);
+    }
+
+    // Estratégia 3: html2canvas fallback
+    try {
+      const canvas = await html2canvas(invoicePrintRef.current, {
+        scale: 2,
+        useCORS: true,
+        allowTaint: true,
+        logging: false,
+        backgroundColor: '#1b7a3e',
+      });
+      return new Promise((resolve) => canvas.toBlob(resolve, 'image/png', 0.95));
+    } catch (err) {
+      console.error('Falha em todas as estratégias de captura:', err);
+      return null;
+    }
   };
 
-  // Copia a imagem renderizada para a Área de Transferência (Clipboard)
+  // Copia a imagem renderizada para a Área de Transferência e faz download automático
   const copyImageToClipboard = async () => {
     try {
       setGeneratingImage(true);
       const blob = await captureInvoiceBlob();
       if (!blob) throw new Error('Não foi possível gerar a imagem da fatura.');
 
+      const fileName = `Orcamento_NeoEnergia_${(clientName || 'Cliente').replace(/\s+/g, '_')}.png`;
+
+      // 1. Tenta copiar para o Clipboard (Ctrl+V)
+      let copied = false;
       if (navigator.clipboard && window.ClipboardItem) {
-        const item = new ClipboardItem({ 'image/png': blob });
-        await navigator.clipboard.write([item]);
+        try {
+          const item = new ClipboardItem({ 'image/png': blob });
+          await navigator.clipboard.write([item]);
+          copied = true;
+        } catch (clipErr) {
+          console.warn('Não foi possível copiar diretamente para a área de transferência:', clipErr);
+        }
+      }
+
+      // 2. Sempre dispara o download do arquivo de imagem
+      downloadBlobFile(blob, fileName);
+
+      if (copied) {
         setCopiedImageSuccess(true);
-        setLastActionStatus('✅ Imagem da fatura copiada! Basta teclar Ctrl+V no WhatsApp para colar.');
-        setTimeout(() => setCopiedImageSuccess(false), 3500);
+        setLastActionStatus('✅ Imagem da fatura copiada e baixada! Basta teclar Ctrl+V no WhatsApp para colar.');
+        setTimeout(() => setCopiedImageSuccess(false), 4000);
       } else {
-        await downloadInvoiceImage();
+        setLastActionStatus('✅ Imagem do orçamento baixada no seu dispositivo!');
       }
     } catch (err) {
-      console.warn('Erro ao copiar imagem:', err);
-      await downloadInvoiceImage();
+      console.error('Erro ao processar imagem:', err);
+      setLastActionStatus('Aviso: Falha ao gerar imagem da fatura.');
     } finally {
       setGeneratingImage(false);
       setTimeout(() => setLastActionStatus(''), 5000);
@@ -259,16 +323,10 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
       const blob = await captureInvoiceBlob();
       if (!blob) throw new Error('Falha ao renderizar a imagem.');
       const fileName = `Orcamento_NeoEnergia_${(clientName || 'Cliente').replace(/\s+/g, '_')}.png`;
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = fileName;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
+      downloadBlobFile(blob, fileName);
       setLastActionStatus('✅ Imagem do orçamento baixada com sucesso!');
     } catch (err) {
+      console.error('Erro ao baixar imagem:', err);
       setLastActionStatus('Erro ao gerar arquivo de imagem.');
     } finally {
       setGeneratingImage(false);
@@ -279,40 +337,47 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
   // Disparo do WhatsApp com imagem e texto da proposta
   const handleSendWhatsapp = async () => {
     const cleanPhone = phoneForZap.replace(/\D/g, '');
-    if (!cleanPhone || cleanPhone.length < 10) {
-      setLastActionStatus('Atenção: Digite o WhatsApp com DDD (ex: 73999998888).');
-      return;
-    }
-
-    const formattedPhone = cleanPhone.length <= 11 ? `55${cleanPhone}` : cleanPhone;
+    const formattedPhone =
+      cleanPhone.length >= 10
+        ? cleanPhone.length <= 11
+          ? `55${cleanPhone}`
+          : cleanPhone
+        : '';
     const msg = generateWhatsAppMessage();
-    const zapUrl = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(msg)}`;
+    const zapUrl = formattedPhone
+      ? `https://wa.me/${formattedPhone}?text=${encodeURIComponent(msg)}`
+      : `https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`;
 
     setGeneratingImage(true);
     try {
       const blob = await captureInvoiceBlob();
       const fileName = `Orcamento_NeoEnergia_${(clientName || 'Cliente').replace(/\s+/g, '_')}.png`;
 
-      // 1. Em dispositivos com Web Share API (celulares Android, iPhone/iOS e navegadores compatíveis):
-      // Permite anexar a imagem PNG diretamente no WhatsApp
-      if (blob && navigator.canShare) {
-        const file = new File([blob], fileName, { type: 'image/png' });
-        if (navigator.canShare({ files: [file] })) {
-          await navigator.share({
-            files: [file],
-            text: msg,
-            title: 'Orçamento Neo Energia',
-          });
-          setLastActionStatus('✅ Orçamento com imagem compartilhada com sucesso no WhatsApp!');
-          setWhatsappModalOpen(false);
-          return;
-        }
-      }
-
-      // 2. No Desktop / WhatsApp Web:
-      // O protocolo wa.me não aceita binários via URL, então copiamos a imagem para a Área de Transferência
-      // e também realizamos o download automático para envio imediato (Ctrl+V)
       if (blob) {
+        // 1. Em dispositivos com Web Share API de arquivos (celulares Android, iPhone/iOS):
+        // Compartilha a imagem PNG anexada diretamente no WhatsApp
+        if (navigator.canShare) {
+          try {
+            const file = new File([blob], fileName, { type: 'image/png' });
+            if (navigator.canShare({ files: [file] })) {
+              await navigator.share({
+                files: [file],
+                text: msg,
+                title: 'Orçamento Neo Energia',
+              });
+              setLastActionStatus('✅ Orçamento com imagem compartilhada com sucesso no WhatsApp!');
+              setWhatsappModalOpen(false);
+              return;
+            }
+          } catch (shareErr: unknown) {
+            if ((shareErr as Error)?.name === 'AbortError') {
+              return; // Usuário cancelou a tela nativa de compartilhamento
+            }
+          }
+        }
+
+        // 2. No Desktop / WhatsApp Web:
+        // Copia a imagem para o clipboard (Ctrl+V) e baixa o arquivo PNG
         try {
           if (navigator.clipboard && window.ClipboardItem) {
             const item = new ClipboardItem({ 'image/png': blob });
@@ -322,14 +387,8 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
           console.warn('Clipboard write image não suportado:', clipErr);
         }
 
-        const url = URL.createObjectURL(blob);
-        const downloadLink = document.createElement('a');
-        downloadLink.href = url;
-        downloadLink.download = fileName;
-        document.body.appendChild(downloadLink);
-        downloadLink.click();
-        document.body.removeChild(downloadLink);
-        URL.revokeObjectURL(url);
+        // Sempre baixa a imagem para garantir que o usuário tenha o arquivo
+        downloadBlobFile(blob, fileName);
       }
 
       // Abre a conversa no WhatsApp Web com o texto pré-carregado
@@ -339,15 +398,15 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
       link.rel = 'noopener noreferrer';
       document.body.appendChild(link);
       link.click();
-      document.body.removeChild(link);
+      setTimeout(() => {
+        document.body.removeChild(link);
+      }, 500);
 
       setLastActionStatus('📸 Imagem copiada e baixada! Ao abrir o WhatsApp, basta teclar Ctrl+V para colar a imagem na conversa.');
       setWhatsappModalOpen(false);
     } catch (err: unknown) {
-      if ((err as Error)?.name !== 'AbortError') {
-        window.open(zapUrl, '_blank');
-        setLastActionStatus('WhatsApp aberto com a proposta de orçamento!');
-      }
+      window.open(zapUrl, '_blank');
+      setLastActionStatus('WhatsApp aberto com a proposta de orçamento!');
     } finally {
       setGeneratingImage(false);
       setTimeout(() => setLastActionStatus(''), 7000);
