@@ -183,15 +183,15 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
   // Texto formatado para envio no WhatsApp
   const generateWhatsAppMessage = () => {
     return (
-      `*PROPOSTA / SIMULAÇÃO DE ECONOMIA — NEO ENERGIA SOLAR*\n\n` +
+      `*PROPOSTA / SIMULAÇÃO DE ORÇAMENTO — NEO ENERGIA SOLAR*\n\n` +
       `Olá, *${clientName}*! Preparamos a simulação da sua fatura de energia solar:\n` +
       `📋 _Orçamento referente à fatura da Coelba apresentada pelo cliente._\n\n` +
       `⚡ *Consumo Estimado:* ${formatNumberBr(consumptionKwh)} kWh\n` +
-      `❌ *Na Coelba você pagaria:* ${formatCurrency(coelbaTotal)}\n` +
-      `✅ *Na Neo Energia você paga:* ${formatCurrency(neoTotal)}\n\n` +
-      `💰 *SUA ECONOMIA MENSAL:* ${formatCurrency(savingsAmount)} (*${formatNumberBr(savingsPercentage, 1)}% de desconto real!*)\n` +
-      `🌟 *Economia Anual Estimada:* ${formatCurrency(annualSavings)}\n\n` +
-      `📄 *Segue anexo o print da sua fatura de exemplo.*\n` +
+      `• *Tarifa Coelba:* ${formatCurrency(coelbaTariff)} por kWh\n` +
+      `• *Tarifa Neo Energia:* ${formatCurrency(neoTariff)} por kWh\n\n` +
+      `🔥 *DIFERENÇA NO VALOR DO KWH: ${formatNumberBr(savingsPercentage, 1)}% DE ECONOMIA!* 🔥\n` +
+      `Você pagará *${formatNumberBr(savingsPercentage, 1)}% a menos* no valor do kWh consumido com a Neo Energia em relação à Coelba!\n\n` +
+      `📄 *Segue em anexo a imagem do orçamento oficial da sua fatura.*\n` +
       `Sem taxas de instalação ou custos extras! Vamos economizar juntos?`
     );
   };
@@ -213,51 +213,63 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
     setWhatsappModalOpen(true);
   };
 
-  // Função utilitária para download confiável de Blob
+  // Função utilitária para download confiável de Blob no PC e Celular
   const downloadBlobFile = (blob: Blob, fileName: string) => {
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = fileName;
-    link.style.display = 'none';
-    document.body.appendChild(link);
-    link.click();
-    setTimeout(() => {
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-    }, 2000);
+    try {
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = fileName;
+      link.rel = 'noopener noreferrer';
+      link.target = '_blank';
+      link.style.display = 'none';
+      document.body.appendChild(link);
+      link.click();
+      setTimeout(() => {
+        if (document.body.contains(link)) {
+          document.body.removeChild(link);
+        }
+        URL.revokeObjectURL(url);
+      }, 5000);
+    } catch (e) {
+      console.error('Download blob error:', e);
+    }
   };
 
   // Captura o elemento visual da fatura (#orcamento-invoice-container) gerando imagem em alta resolução
   const captureInvoiceBlob = async (): Promise<Blob | null> => {
     if (!invoicePrintRef.current) return null;
 
-    // Estratégia 1: html-to-image toBlob (Suporta Tailwind v4, oklch e alta DPI perfeitamente)
-    try {
-      const blob = await htmlToImage.toBlob(invoicePrintRef.current, {
-        quality: 0.98,
-        pixelRatio: 2,
-        backgroundColor: '#1b7a3e',
-        cacheBust: true,
-      });
-      if (blob && blob.size > 0) return blob;
-    } catch (err) {
-      console.warn('htmlToImage.toBlob falhou, tentando toPng...', err);
-    }
-
-    // Estratégia 2: html-to-image toPng (Data URL -> Blob)
+    // Estratégia 1: html-to-image toPng com skipFonts: true (Evita SecurityError de fontes externas e suporta Tailwind v4)
     try {
       const dataUrl = await htmlToImage.toPng(invoicePrintRef.current, {
-        quality: 0.98,
+        quality: 0.95,
         pixelRatio: 2,
         backgroundColor: '#1b7a3e',
-        cacheBust: true,
+        skipFonts: true,
+        cacheBust: false,
       });
-      const res = await fetch(dataUrl);
-      const blob = await res.blob();
+      if (dataUrl && dataUrl.startsWith('data:image')) {
+        const res = await fetch(dataUrl);
+        const blob = await res.blob();
+        if (blob && blob.size > 0) return blob;
+      }
+    } catch (err) {
+      console.warn('htmlToImage.toPng falhou, tentando toBlob...', err);
+    }
+
+    // Estratégia 2: html-to-image toBlob direto com skipFonts: true
+    try {
+      const blob = await htmlToImage.toBlob(invoicePrintRef.current, {
+        quality: 0.95,
+        pixelRatio: 2,
+        backgroundColor: '#1b7a3e',
+        skipFonts: true,
+        cacheBust: false,
+      });
       if (blob && blob.size > 0) return blob;
     } catch (err) {
-      console.warn('htmlToImage.toPng falhou, tentando html2canvas...', err);
+      console.warn('htmlToImage.toBlob falhou, tentando html2canvas...', err);
     }
 
     // Estratégia 3: html2canvas fallback
@@ -285,11 +297,15 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
 
       const fileName = `Orcamento_NeoEnergia_${(clientName || 'Cliente').replace(/\s+/g, '_')}.png`;
 
-      // 1. Tenta copiar para o Clipboard (Ctrl+V)
+      // 1. Sempre dispara o download do arquivo de imagem (Salva no Celular e PC)
+      downloadBlobFile(blob, fileName);
+
+      // 2. Tenta copiar para o Clipboard (Ctrl+V)
       let copied = false;
+      const pngBlob = blob.type === 'image/png' ? blob : blob.slice(0, blob.size, 'image/png');
       if (navigator.clipboard && window.ClipboardItem) {
         try {
-          const item = new ClipboardItem({ 'image/png': blob });
+          const item = new ClipboardItem({ 'image/png': pngBlob });
           await navigator.clipboard.write([item]);
           copied = true;
         } catch (clipErr) {
@@ -297,15 +313,12 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
         }
       }
 
-      // 2. Sempre dispara o download do arquivo de imagem
-      downloadBlobFile(blob, fileName);
-
       if (copied) {
         setCopiedImageSuccess(true);
-        setLastActionStatus('✅ Imagem da fatura copiada e baixada! Basta teclar Ctrl+V no WhatsApp para colar.');
+        setLastActionStatus('✅ Imagem da fatura copiada e baixada! Cole com Ctrl+V no WhatsApp.');
         setTimeout(() => setCopiedImageSuccess(false), 4000);
       } else {
-        setLastActionStatus('✅ Imagem do orçamento baixada no seu dispositivo!');
+        setLastActionStatus('✅ Imagem do orçamento baixada no seu aparelho!');
       }
     } catch (err) {
       console.error('Erro ao processar imagem:', err);
@@ -324,7 +337,7 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
       if (!blob) throw new Error('Falha ao renderizar a imagem.');
       const fileName = `Orcamento_NeoEnergia_${(clientName || 'Cliente').replace(/\s+/g, '_')}.png`;
       downloadBlobFile(blob, fileName);
-      setLastActionStatus('✅ Imagem do orçamento baixada com sucesso!');
+      setLastActionStatus('✅ Imagem do orçamento salva nos downloads/galeria do seu dispositivo!');
     } catch (err) {
       console.error('Erro ao baixar imagem:', err);
       setLastActionStatus('Erro ao gerar arquivo de imagem.');
@@ -348,64 +361,89 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
       ? `https://wa.me/${formattedPhone}?text=${encodeURIComponent(msg)}`
       : `https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`;
 
+    const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    const fileName = `Orcamento_NeoEnergia_${(clientName || 'Cliente').replace(/\s+/g, '_')}.png`;
+
     setGeneratingImage(true);
     try {
       const blob = await captureInvoiceBlob();
-      const fileName = `Orcamento_NeoEnergia_${(clientName || 'Cliente').replace(/\s+/g, '_')}.png`;
 
       if (blob) {
-        // 1. Em dispositivos com Web Share API de arquivos (celulares Android, iPhone/iOS):
-        // Compartilha a imagem PNG anexada diretamente no WhatsApp
-        if (navigator.canShare) {
+        // Baixa o arquivo para salvar no celular (galeria/downloads) e no computador
+        downloadBlobFile(blob, fileName);
+
+        // No celular: suporte a Web Share API para enviar a imagem diretamente ao WhatsApp
+        if (navigator.share) {
           try {
             const file = new File([blob], fileName, { type: 'image/png' });
-            if (navigator.canShare({ files: [file] })) {
+            if (navigator.canShare && navigator.canShare({ files: [file] })) {
               await navigator.share({
                 files: [file],
                 text: msg,
                 title: 'Orçamento Neo Energia',
               });
-              setLastActionStatus('✅ Orçamento com imagem compartilhada com sucesso no WhatsApp!');
+              setLastActionStatus('✅ Orçamento e imagem compartilhados com sucesso!');
               setWhatsappModalOpen(false);
               return;
             }
           } catch (shareErr: unknown) {
-            if ((shareErr as Error)?.name === 'AbortError') {
-              return; // Usuário cancelou a tela nativa de compartilhamento
+            if (shareErr instanceof Error && shareErr.name === 'AbortError') {
+              return;
             }
+            console.log('Share fallback:', shareErr);
           }
         }
 
-        // 2. No Desktop / WhatsApp Web:
-        // Copia a imagem para o clipboard (Ctrl+V) e baixa o arquivo PNG
-        try {
-          if (navigator.clipboard && window.ClipboardItem) {
+        // No Desktop: copia para o Clipboard para envio rápido via Ctrl+V
+        if (!isMobile && navigator.clipboard && window.ClipboardItem) {
+          try {
             const item = new ClipboardItem({ 'image/png': blob });
             await navigator.clipboard.write([item]);
+          } catch (clipErr) {
+            console.warn('Clipboard write error:', clipErr);
           }
-        } catch (clipErr) {
-          console.warn('Clipboard write image não suportado:', clipErr);
         }
-
-        // Sempre baixa a imagem para garantir que o usuário tenha o arquivo
-        downloadBlobFile(blob, fileName);
       }
 
-      // Abre a conversa no WhatsApp Web com o texto pré-carregado
-      const link = document.createElement('a');
-      link.href = zapUrl;
-      link.target = '_blank';
-      link.rel = 'noopener noreferrer';
-      document.body.appendChild(link);
-      link.click();
-      setTimeout(() => {
-        document.body.removeChild(link);
-      }, 500);
+      // Abre o WhatsApp garantidamente com link seguro para celular e desktop
+      const openZapLink = () => {
+        try {
+          const a = document.createElement('a');
+          a.href = zapUrl;
+          a.target = '_blank';
+          a.rel = 'noopener noreferrer';
+          document.body.appendChild(a);
+          a.click();
+          setTimeout(() => {
+            if (document.body.contains(a)) document.body.removeChild(a);
+          }, 1000);
+        } catch {
+          window.open(zapUrl, '_blank');
+        }
+      };
 
-      setLastActionStatus('📸 Imagem copiada e baixada! Ao abrir o WhatsApp, basta teclar Ctrl+V para colar a imagem na conversa.');
+      openZapLink();
+
+      setLastActionStatus(
+        isMobile
+          ? '📸 Imagem salva no aparelho e WhatsApp aberto!'
+          : '📸 Imagem copiada e baixada! Ao abrir o WhatsApp, tecle Ctrl+V para colar a imagem.'
+      );
       setWhatsappModalOpen(false);
     } catch (err: unknown) {
-      window.open(zapUrl, '_blank');
+      try {
+        const a = document.createElement('a');
+        a.href = zapUrl;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+          if (document.body.contains(a)) document.body.removeChild(a);
+        }, 1000);
+      } catch {
+        window.open(zapUrl, '_blank');
+      }
       setLastActionStatus('WhatsApp aberto com a proposta de orçamento!');
     } finally {
       setGeneratingImage(false);
@@ -699,7 +737,7 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
 
               <div className="mt-4">
                 <span className="text-xs uppercase font-extrabold text-orange-100 tracking-wider block">
-                  Economia Mensal em Reais
+                  Valor da Economia (Neste Mês)
                 </span>
                 <div className="text-4xl sm:text-5xl font-black tracking-tight text-white mt-1 drop-shadow-sm">
                   {formatCurrency(savingsAmount)}
@@ -730,18 +768,18 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
             {/* Comparativo Anual e Resumo */}
             <div className="mt-5 pt-4 border-t border-orange-400/60 space-y-2">
               <div className="flex items-center justify-between text-xs font-bold text-orange-100">
-                <span>Economia Projetada em 1 Ano:</span>
+                <span>Tarifa Coelba:</span>
                 <span className="text-base font-black text-white">
-                  {formatCurrency(annualSavings)}
+                  {formatCurrency(coelbaTariff)}/kWh
                 </span>
               </div>
               <div className="flex items-center justify-between text-xs font-semibold text-orange-100">
-                <span>Total Coelba no Ano:</span>
-                <span>{formatCurrency(coelbaTotal * 12)}</span>
+                <span>Diferença no valor do kWh:</span>
+                <span className="text-yellow-300 font-black">{formatNumberBr(savingsPercentage, 1)}% a menos</span>
               </div>
               <div className="flex items-center justify-between text-xs font-semibold text-orange-100">
-                <span>Total Neo no Ano:</span>
-                <span className="text-yellow-200 font-bold">{formatCurrency(neoTotal * 12)}</span>
+                <span>Tarifa Neo Energia:</span>
+                <span className="text-yellow-200 font-bold">{formatCurrency(neoTariff)}/kWh</span>
               </div>
             </div>
 
@@ -939,33 +977,38 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
                   </div>
 
                   {/* Bloco 6: Total a pagar com desconto */}
+                  {/* Bloco 6: Total a pagar com desconto */}
                   <div className="border-2 border-[#1b7a3e] rounded-2xl px-4 py-3 bg-white flex items-center justify-between">
-                    <span className="text-xs sm:text-sm font-extrabold text-[#156231]">
-                      TOTAL A PAGAR COM DESCONTO:
-                    </span>
+                    <div>
+                      <span className="text-xs sm:text-sm font-extrabold text-[#156231] block">
+                        TOTAL A PAGAR COM DESCONTO:
+                      </span>
+                      <span className="text-[11px] font-black text-[#1b7a3e]">
+                        {formatNumberBr(savingsPercentage, 1)}% DE ECONOMIA NO VALOR DO KWH
+                      </span>
+                    </div>
                     <span className="text-2xl sm:text-3xl font-black text-[#156231] tracking-tight">
                       {formatCurrency(neoTotal, false)}
                     </span>
                   </div>
                 </div>
 
-                {/* Bloco 7: Desconto Neo Energia com Valor E Percentual */}
+                {/* Bloco 7: Desconto Neo Energia — Valor da Economia em Reais */}
                 <div className="sm:col-span-4 bg-[#e97825] rounded-2xl p-2.5 text-white flex flex-col justify-between items-center text-center shadow-md">
                   <div className="bg-white/90 text-[#e97825] font-black text-[10px] sm:text-[11px] px-3 py-0.5 rounded-full uppercase tracking-wider">
-                    DESCONTO NEO ENERGIA
+                    VALOR DA ECONOMIA
                   </div>
-                  <div className="my-1">
-                    <span className="text-2xl sm:text-3xl font-black tracking-tight drop-shadow-xs">
+                  <div className="my-1.5">
+                    <span className="text-2xl sm:text-3xl font-black tracking-tight drop-shadow-xs text-white">
                       {formatCurrency(savingsAmount, false)}
                     </span>
-                    {/* Badge do percentual em destaque solicitado pelo usuário */}
-                    <div className="mt-1 bg-white text-[#c75d10] font-black text-xs px-2.5 py-0.5 rounded-full inline-block shadow-xs">
-                      {formatNumberBr(savingsPercentage, 1)}% DE ECONOMIA REAL
-                    </div>
+                    <span className="block text-[10px] font-bold text-orange-100 uppercase mt-0.5">
+                      ECONOMIA NESTE MÊS
+                    </span>
                   </div>
                   <div className="flex items-center justify-center">
-                    <div className="w-8 h-8 rounded-full bg-[#1b7a3e] flex items-center justify-center text-white border-2 border-white shadow-xs">
-                      <Zap className="w-4 h-4 fill-yellow-300 text-yellow-300" />
+                    <div className="w-7 h-7 rounded-full bg-[#1b7a3e] flex items-center justify-center text-white border-2 border-white shadow-xs">
+                      <Zap className="w-3.5 h-3.5 fill-yellow-300 text-yellow-300" />
                     </div>
                   </div>
                 </div>
@@ -979,7 +1022,7 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
                 </span>
               </div>
 
-              {/* BLOCO 9 — TRANSPARÊNCIA NO DESCONTO (com Valor e Percentual detalhados) */}
+              {/* BLOCO 9 — TRANSPARÊNCIA NO DESCONTO (com Porcentagem de diferença no kWh) */}
               <div className="mt-3 bg-[#1d7b3f] text-white rounded-2xl p-3 text-center shadow-xs">
                 <h3 className="text-xs sm:text-sm font-black uppercase tracking-wider text-yellow-300 mb-1">
                   TRANSPARÊNCIA NO SEU DESCONTO
@@ -996,12 +1039,8 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
                     ENTÃO O SENHOR PAGARIA {formatNumberBr(consumptionKwh)} KWH X{' '}
                     {formatCurrency(coelbaTariff, false)} = {formatCurrency(coelbaTotal, false)} REAIS.
                   </p>
-                  <p className="text-yellow-200 font-bold text-xs">
-                    ENTÃO TEVE UMA ECONOMIA DE {formatCurrency(savingsAmount, false)} REAIS ESTE MÊS (
-                    {formatNumberBr(savingsPercentage, 1)}% DE DESCONTO GARANTIDO)!
-                  </p>
-                  <p className="text-emerald-200 font-semibold text-[10px]">
-                    ESTIMATIVA DE ECONOMIA EM 12 MESES: {formatCurrency(annualSavings, true)}
+                  <p className="text-yellow-300 font-black text-xs sm:text-sm pt-0.5">
+                    DIFERENÇA NO VALOR DO KWH: VOCÊ PAGA {formatNumberBr(savingsPercentage, 1)}% A MENOS ENTRE A NEO ENERGIA E A COELBA!
                   </p>
                 </div>
               </div>
@@ -1110,7 +1149,7 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
                 </div>
               </div>
 
-              {/* BLOCO 12 — RESUMO ACUMULADO DE ECONOMIA */}
+              {/* BLOCO 12 — RESUMO DA ECONOMIA GARANTIDA */}
               <div className="mt-3 bg-[#e97825] rounded-2xl p-2.5 text-white shadow-md">
                 <div className="flex items-center justify-between px-2 mb-1.5 border-b border-orange-400/60 pb-1">
                   <div className="flex items-center gap-1.5">
@@ -1126,7 +1165,7 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
 
                 <div className="grid grid-cols-3 gap-2 text-center items-center">
                   <div className="bg-orange-600/50 rounded-xl p-1.5 border border-orange-400/40">
-                    <span className="text-[9px] font-black uppercase block text-orange-100">MESES E ANO</span>
+                    <span className="text-[9px] font-black uppercase block text-orange-100">MÊS E ANO</span>
                     <span className="text-xs sm:text-sm font-black text-white">
                       {String(refMonth).padStart(2, '0')}/{refYear}
                     </span>
@@ -1138,7 +1177,7 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
                     </span>
                   </div>
                   <div className="bg-orange-600/50 rounded-xl p-1.5 border border-orange-400/40">
-                    <span className="text-[9px] font-black uppercase block text-orange-100">ECONOMIA ESTIMADA</span>
+                    <span className="text-[9px] font-black uppercase block text-orange-100">VALOR DA ECONOMIA</span>
                     <span className="text-xs sm:text-sm font-black text-yellow-200">
                       R$ = {formatCurrency(savingsAmount, false)}
                     </span>
@@ -1224,8 +1263,8 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
                 <span>{formatCurrency(coelbaTotal)} ➜ <strong className="text-emerald-800">{formatCurrency(neoTotal)}</strong></span>
               </div>
               <div className="flex justify-between font-black text-[#e97825] border-t border-emerald-200/80 pt-1">
-                <span>Economia Mensal Garantida:</span>
-                <span>{formatCurrency(savingsAmount)} ({formatNumberBr(savingsPercentage, 1)}% OFF)</span>
+                <span>Diferença no valor do kWh:</span>
+                <span className="text-emerald-800 font-black">{formatNumberBr(savingsPercentage, 1)}% a menos</span>
               </div>
             </div>
 
