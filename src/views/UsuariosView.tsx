@@ -11,6 +11,8 @@ import {
   X,
   Lock,
   Mail,
+  Edit2,
+  Trash2,
 } from 'lucide-react';
 import { UserProfile, UserRole } from '../types';
 import { formatDateBr } from '../lib/calculations';
@@ -20,9 +22,16 @@ import { useAuth } from '../hooks/useAuth';
 interface UsuariosViewProps {
   usuarios: UserProfile[];
   onUpdateUserRole: (uid: string, newRole: UserRole, active: boolean) => Promise<void>;
+  onUpdateUser?: (uid: string, updates: { name: string; role: UserRole; active: boolean }) => Promise<void>;
+  onDeleteUser?: (uid: string) => Promise<void>;
 }
 
-export const UsuariosView: React.FC<UsuariosViewProps> = ({ usuarios, onUpdateUserRole }) => {
+export const UsuariosView: React.FC<UsuariosViewProps> = ({
+  usuarios,
+  onUpdateUserRole,
+  onUpdateUser,
+  onDeleteUser,
+}) => {
   const { userProfile, isAdmin, adminCreateUser } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
   const [savingUid, setSavingUid] = useState<string | null>(null);
@@ -36,6 +45,18 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({ usuarios, onUpdateUs
   const [creating, setCreating] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
   const [modalSuccess, setModalSuccess] = useState<string | null>(null);
+
+  // Edit user modal state
+  const [editingUser, setEditingUser] = useState<UserProfile | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editRole, setEditRole] = useState<UserRole>('operator');
+  const [editActive, setEditActive] = useState(true);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+
+  // Delete user modal state
+  const [userToDelete, setUserToDelete] = useState<UserProfile | null>(null);
+  const [deletingUser, setDeletingUser] = useState(false);
 
   const filtered = usuarios.filter((u) => {
     const term = searchTerm.toLowerCase();
@@ -117,6 +138,55 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({ usuarios, onUpdateUs
       }
     } finally {
       setCreating(false);
+    }
+  };
+
+  const handleOpenEditUser = (u: UserProfile) => {
+    setEditingUser(u);
+    setEditName(u.name);
+    setEditRole(u.role);
+    setEditActive(u.active);
+    setEditError(null);
+  };
+
+  const handleSaveEditUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingUser) return;
+    if (!editName.trim()) {
+      setEditError('Informe o nome do usuário.');
+      return;
+    }
+
+    setSavingEdit(true);
+    setEditError(null);
+    try {
+      if (onUpdateUser) {
+        await onUpdateUser(editingUser.uid, {
+          name: editName.trim(),
+          role: editRole,
+          active: editActive,
+        });
+      } else {
+        await onUpdateUserRole(editingUser.uid, editRole, editActive);
+      }
+      setEditingUser(null);
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : 'Erro ao atualizar dados do usuário.');
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  const handleConfirmDeleteUser = async () => {
+    if (!userToDelete || !onDeleteUser) return;
+    setDeletingUser(true);
+    try {
+      await onDeleteUser(userToDelete.uid);
+      setUserToDelete(null);
+    } catch (err) {
+      alert('Erro ao excluir usuário: ' + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setDeletingUser(false);
     }
   };
 
@@ -229,10 +299,41 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({ usuarios, onUpdateUs
                       </td>
                       <td className="py-3 px-4 text-gray-500">{formatDateBr(u.createdAt)}</td>
                       <td className="py-3 px-4 text-right">
-                        {savingUid === u.uid && (
+                        {savingUid === u.uid ? (
                           <span className="text-[10px] text-emerald-700 font-bold animate-pulse">
                             Atualizando...
                           </span>
+                        ) : (
+                          <div className="flex items-center justify-end gap-1.5">
+                            {isAdmin && (
+                              <>
+                                <button
+                                  onClick={() => handleOpenEditUser(u)}
+                                  className="p-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-100 hover:text-blue-700 transition cursor-pointer"
+                                  title="Editar dados do usuário"
+                                >
+                                  <Edit2 className="w-4 h-4" />
+                                </button>
+                                {!isCurrentSelf ? (
+                                  <button
+                                    onClick={() => setUserToDelete(u)}
+                                    className="p-1.5 rounded-lg border border-rose-200 text-rose-600 hover:bg-rose-50 hover:border-rose-300 transition cursor-pointer"
+                                    title="Excluir usuário do sistema"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                ) : (
+                                  <button
+                                    disabled
+                                    className="p-1.5 rounded-lg border border-gray-200 text-gray-300 cursor-not-allowed opacity-40"
+                                    title="Você não pode excluir o seu próprio usuário conectado"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                )}
+                              </>
+                            )}
+                          </div>
                         )}
                       </td>
                     </tr>
@@ -358,6 +459,192 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({ usuarios, onUpdateUs
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Editar Usuário */}
+      {editingUser && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 p-4 backdrop-blur-xs flex items-center justify-center">
+          <div className="w-full max-w-md bg-white rounded-3xl p-6 sm:p-8 shadow-2xl border border-gray-100">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3 mb-4">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-blue-100 text-blue-800 flex items-center justify-center font-bold">
+                  <Edit2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-gray-900">Editar Usuário</h3>
+                  <p className="text-xs text-gray-500">Atualize os dados e privilégios de acesso</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setEditingUser(null)}
+                className="p-1 text-gray-400 hover:text-gray-600 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {editError && (
+              <div className="mb-4 flex items-center gap-2 rounded-xl bg-rose-50 p-3 text-xs text-rose-700 border border-rose-200">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{editError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleSaveEditUser} className="space-y-3.5 text-xs">
+              <div>
+                <label className="block font-bold text-gray-700 mb-1">Nome Completo *</label>
+                <div className="relative">
+                  <User className="w-4 h-4 text-gray-400 absolute left-3 top-3" />
+                  <input
+                    type="text"
+                    required
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    className="w-full rounded-xl border border-gray-300 pl-9 pr-3 py-2.5 text-gray-900 focus:border-emerald-600 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-gray-700 mb-1">E-mail de Login</label>
+                <div className="relative">
+                  <Mail className="w-4 h-4 text-gray-400 absolute left-3 top-3" />
+                  <input
+                    type="email"
+                    disabled
+                    value={editingUser.email}
+                    className="w-full rounded-xl border border-gray-200 bg-gray-100 pl-9 pr-3 py-2.5 text-gray-500 font-mono cursor-not-allowed"
+                  />
+                </div>
+                <span className="text-[10px] text-gray-400 mt-1 block">
+                  O e-mail é a chave de login do Firebase Auth e não pode ser alterado.
+                </span>
+              </div>
+
+              <div>
+                <label className="block font-bold text-gray-700 mb-1">Perfil de Acesso *</label>
+                <select
+                  value={editRole}
+                  disabled={editingUser.uid === userProfile?.uid}
+                  onChange={(e) => setEditRole(e.target.value as UserRole)}
+                  className="w-full rounded-xl border border-gray-300 p-2.5 text-gray-900 font-bold focus:border-emerald-600 focus:outline-none disabled:bg-gray-100 disabled:text-gray-500"
+                >
+                  <option value="operator">Operador (lançar leituras, faturas, consultar clientes)</option>
+                  <option value="admin">Administrador (acesso irrestrito e gerenciamento de usuários)</option>
+                </select>
+                {editingUser.uid === userProfile?.uid && (
+                  <span className="text-[10px] text-amber-700 mt-1 block">
+                    Você não pode alterar o seu próprio perfil de acesso.
+                  </span>
+                )}
+              </div>
+
+              <div>
+                <label className="block font-bold text-gray-700 mb-1">Status da Conta *</label>
+                <select
+                  value={editActive ? 'active' : 'blocked'}
+                  disabled={editingUser.uid === userProfile?.uid}
+                  onChange={(e) => setEditActive(e.target.value === 'active')}
+                  className="w-full rounded-xl border border-gray-300 p-2.5 text-gray-900 font-bold focus:border-emerald-600 focus:outline-none disabled:bg-gray-100 disabled:text-gray-500"
+                >
+                  <option value="active">Ativo (acesso liberado)</option>
+                  <option value="blocked">Bloqueado (acesso negado)</option>
+                </select>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => setEditingUser(null)}
+                  disabled={savingEdit}
+                  className="rounded-xl border border-gray-300 px-4 py-2 font-semibold text-gray-700 hover:bg-gray-50 transition cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingEdit}
+                  className="rounded-xl bg-emerald-700 px-5 py-2 font-bold text-white hover:bg-emerald-800 transition disabled:opacity-50 cursor-pointer shadow-xs"
+                >
+                  {savingEdit ? 'Salvando...' : 'Salvar Alterações'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Excluir Usuário */}
+      {userToDelete && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 p-4 backdrop-blur-xs flex items-center justify-center">
+          <div className="w-full max-w-md bg-white rounded-3xl p-6 sm:p-8 shadow-2xl border border-gray-100">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3 mb-4">
+              <div className="flex items-center gap-2">
+                <div className="w-9 h-9 rounded-xl bg-rose-100 text-rose-700 flex items-center justify-center font-bold">
+                  <Trash2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-gray-900">Excluir Usuário</h3>
+                  <p className="text-xs text-gray-500">Revogação definitiva de acesso</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setUserToDelete(null)}
+                className="p-1 text-gray-400 hover:text-gray-600 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs text-gray-700 mb-6">
+              <p>
+                Você está prestes a excluir o seguinte usuário do sistema:
+              </p>
+              <div className="rounded-xl bg-gray-50 p-3.5 border border-gray-200 space-y-1">
+                <p className="font-bold text-gray-900 text-sm">{userToDelete.name}</p>
+                <p className="text-gray-600 font-mono text-[11px]">{userToDelete.email}</p>
+                <p className="text-gray-600">
+                  Perfil:{' '}
+                  <span className="font-semibold text-emerald-800">
+                    {userToDelete.role === 'admin' ? 'Administrador' : 'Operador'}
+                  </span>
+                </p>
+              </div>
+              <p className="text-rose-800 bg-rose-50 p-2.5 rounded-xl border border-rose-200">
+                ⚠️ O perfil deste usuário será excluído e ele não conseguirá mais efetuar login no sistema.
+              </p>
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setUserToDelete(null)}
+                disabled={deletingUser}
+                className="rounded-xl border border-gray-300 px-4 py-2 font-semibold text-gray-700 hover:bg-gray-50 transition cursor-pointer text-xs"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteUser}
+                disabled={deletingUser}
+                className="rounded-xl bg-rose-600 hover:bg-rose-700 px-5 py-2 font-bold text-white transition disabled:opacity-50 flex items-center gap-2 cursor-pointer text-xs shadow-xs"
+              >
+                {deletingUser ? (
+                  <>
+                    <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Excluindo...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4" />
+                    Confirmar Exclusão
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}

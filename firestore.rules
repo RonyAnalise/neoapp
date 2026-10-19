@@ -9,7 +9,9 @@ service cloud.firestore {
     function isAdmin() {
       return isSignedIn() && (
         exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
-        request.auth.token.email == 'ronycvcsales@gmail.com'
+        request.auth.token.email == 'ronycvcsales@gmail.com' ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
       );
     }
 
@@ -39,9 +41,8 @@ service cloud.firestore {
     // Clientes
     match /clientes/{clienteId} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update: if isSignedIn();
-      allow delete: if isAdmin();
+      allow create, update: if isSignedIn();
+      allow delete: if isAdmin() || isSignedIn();
     }
 
     // Empresa
@@ -65,17 +66,15 @@ service cloud.firestore {
     // Leituras
     match /leituras/{leituraId} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update: if isSignedIn();
-      allow delete: if isSignedIn();
+      allow create, update: if isSignedIn();
+      allow delete: if isAdmin() || isSignedIn();
     }
 
     // Faturas
     match /faturas/{faturaId} {
       allow read: if true; // Permite visualização por link direto de fatura
-      allow create: if isSignedIn();
-      allow update: if isSignedIn();
-      allow delete: if isSignedIn();
+      allow create, update: if isSignedIn();
+      allow delete: if isAdmin() || isSignedIn();
     }
 
     // Pagamentos
@@ -88,17 +87,16 @@ service cloud.firestore {
 
     // Auditoria
     match /auditoria/{auditoriaId} {
-      allow read: if isAdmin();
-      allow create: if isSignedIn();
+      allow read: if true;
+      allow create: if true;
       allow update, delete: if false; // Auditoria é somente inclusão (imutável)
     }
 
     // Taxas Coelba (Taxas Quitadas)
     match /taxas_coelba/{taxaId} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update: if isSignedIn();
-      allow delete: if isSignedIn();
+      allow create, update: if isSignedIn();
+      allow delete: if isAdmin() || isSignedIn();
     }
   }
 }

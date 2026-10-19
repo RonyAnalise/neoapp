@@ -184,6 +184,9 @@ export interface AuditoriaLog {
     | 'delete_reading'
     | 'delete_invoice'
     | 'delete_payment'
+    | 'delete_client'
+    | 'edit_user'
+    | 'delete_user'
     | 'register_taxa_coelba'
     | 'delete_taxa_coelba';
   collectionName: string;

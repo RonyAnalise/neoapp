@@ -388,6 +388,30 @@ function MainApp() {
     });
   };
 
+  const handleDeleteCliente = async (clienteId: string) => {
+    const cli = clientes.find((c) => c.id === clienteId);
+    const hasInvoices = faturas.some((f) => f.clientId === clienteId);
+    const hasReadings = leituras.some((l) => l.clientId === clienteId);
+    const hasTaxas = taxasCoelba.some((t) => t.clientId === clienteId);
+
+    if (hasInvoices || hasReadings || hasTaxas) {
+      throw new Error(
+        'Este cliente já possui movimentações (faturas, leituras ou taxas vinculadas) e não pode ser excluído.'
+      );
+    }
+
+    await deleteDoc(doc(db, 'clientes', clienteId));
+    await logAuditEvent({
+      operationType: 'delete_client',
+      collectionName: 'clientes',
+      relatedDocument: cli?.name || clienteId,
+      user: userProfile?.name || 'Sistema',
+      userEmail: userProfile?.email || '',
+      previousData: cli || undefined,
+      justification: `Exclusão definitiva de cliente sem movimentação: ${cli?.name || clienteId}`,
+    });
+  };
+
   const handleRegisterReading = async (readingData: Omit<Leitura, 'id' | 'createdAt'>) => {
     const newRef = doc(collection(db, 'leituras'));
     await setDoc(newRef, {
@@ -568,6 +592,60 @@ function MainApp() {
     } else {
       await updateDoc(doc(db, 'admins', uid), { active: false }).catch(() => {});
     }
+  };
+
+  const handleUpdateUser = async (
+    uid: string,
+    updates: { name: string; role: UserRole; active: boolean }
+  ) => {
+    const userToUpdate = usuarios.find((u) => u.uid === uid);
+    await updateDoc(doc(db, 'users', uid), {
+      name: updates.name.trim(),
+      role: updates.role,
+      active: updates.active,
+      updatedAt: new Date().toISOString(),
+    });
+
+    if (updates.role === 'admin' && updates.active) {
+      await setDoc(
+        doc(db, 'admins', uid),
+        { active: true, email: userToUpdate?.email || '' },
+        { merge: true }
+      );
+    } else {
+      await deleteDoc(doc(db, 'admins', uid)).catch(() => {});
+    }
+
+    await logAuditEvent({
+      operationType: 'edit_user',
+      collectionName: 'users',
+      relatedDocument: userToUpdate?.email || uid,
+      user: userProfile?.name || 'Administrador',
+      userEmail: userProfile?.email || '',
+      newData: updates,
+      previousData: userToUpdate || undefined,
+      justification: `Atualização de cadastro do usuário ${updates.name} (${userToUpdate?.email || uid})`,
+    });
+  };
+
+  const handleDeleteUser = async (uid: string) => {
+    if (uid === currentUser?.uid) {
+      throw new Error('Você não pode excluir o seu próprio usuário que está logado no momento.');
+    }
+
+    const userToDelete = usuarios.find((u) => u.uid === uid);
+    await deleteDoc(doc(db, 'users', uid));
+    await deleteDoc(doc(db, 'admins', uid)).catch(() => {});
+
+    await logAuditEvent({
+      operationType: 'delete_user',
+      collectionName: 'users',
+      relatedDocument: userToDelete?.email || uid,
+      user: userProfile?.name || 'Administrador',
+      userEmail: userProfile?.email || '',
+      previousData: userToDelete || undefined,
+      justification: `Exclusão definitiva de usuário: ${userToDelete?.name || ''} (${userToDelete?.email || uid})`,
+    });
   };
 
   const handleSaveTaxa = async (taxaData: Omit<TaxaCoelba, 'id' | 'createdAt' | 'status' | 'createdBy'>) => {
@@ -786,9 +864,11 @@ function MainApp() {
               clientes={clientes}
               faturas={faturas}
               leituras={leituras}
+              taxasCoelba={taxasCoelba}
               tariffs={tariffs}
               onSaveCliente={handleSaveCliente}
               onToggleStatus={handleToggleClienteStatus}
+              onDeleteCliente={handleDeleteCliente}
               onOpenInvoiceModal={(fat) => setViewingFatura(fat)}
               onSyncAllSeedInvoices={() => syncAllSeedInvoices(true)}
               isSyncing={isSyncing}
@@ -887,7 +967,12 @@ function MainApp() {
           )}
 
           {activeTab === 'usuarios' && (
-            <UsuariosView usuarios={usuarios} onUpdateUserRole={handleUpdateUserRole} />
+            <UsuariosView
+              usuarios={usuarios}
+              onUpdateUserRole={handleUpdateUserRole}
+              onUpdateUser={handleUpdateUser}
+              onDeleteUser={handleDeleteUser}
+            />
           )}
 
           {activeTab === 'auditoria' && <AuditoriaView logs={auditoriaLogs} />}

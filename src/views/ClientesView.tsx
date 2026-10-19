@@ -18,8 +18,9 @@ import {
   Receipt,
   FileSpreadsheet,
   Zap,
+  Trash2,
 } from 'lucide-react';
-import { Cliente, Fatura, Leitura, EnergyTariffs } from '../types';
+import { Cliente, Fatura, Leitura, EnergyTariffs, TaxaCoelba } from '../types';
 import { fetchAddressByCep, formatCep } from '../lib/cepService';
 import { formatCurrency, formatNumberBr, formatDateBr, formatReferencePeriod } from '../lib/calculations';
 import { logAuditEvent } from '../lib/auditService';
@@ -29,9 +30,11 @@ interface ClientesViewProps {
   clientes: Cliente[];
   faturas: Fatura[];
   leituras: Leitura[];
+  taxasCoelba?: TaxaCoelba[];
   tariffs: EnergyTariffs;
   onSaveCliente: (cliente: Partial<Cliente>, isNew: boolean) => Promise<void>;
   onToggleStatus: (clienteId: string, currentStatus: 'active' | 'inactive') => Promise<void>;
+  onDeleteCliente?: (clienteId: string) => Promise<void>;
   onOpenInvoiceModal: (fatura: Fatura) => void;
   onSyncAllSeedInvoices?: () => Promise<void>;
   isSyncing?: boolean;
@@ -41,9 +44,11 @@ export const ClientesView: React.FC<ClientesViewProps> = ({
   clientes,
   faturas,
   leituras,
+  taxasCoelba = [],
   tariffs,
   onSaveCliente,
   onToggleStatus,
+  onDeleteCliente,
   onOpenInvoiceModal,
   onSyncAllSeedInvoices,
   isSyncing,
@@ -59,6 +64,8 @@ export const ClientesView: React.FC<ClientesViewProps> = ({
   const [modalOpen, setModalOpen] = useState(false);
   const [editingCliente, setEditingCliente] = useState<Cliente | null>(null);
   const [detailCliente, setDetailCliente] = useState<Cliente | null>(null);
+  const [clientToDelete, setClientToDelete] = useState<Cliente | null>(null);
+  const [deletingCliente, setDeletingCliente] = useState(false);
 
   // Form state
   const [formData, setFormData] = useState<Partial<Cliente>>({
@@ -246,6 +253,19 @@ export const ClientesView: React.FC<ClientesViewProps> = ({
     }
   };
 
+  const handleConfirmDeleteCliente = async () => {
+    if (!clientToDelete || !onDeleteCliente) return;
+    setDeletingCliente(true);
+    try {
+      await onDeleteCliente(clientToDelete.id);
+      setClientToDelete(null);
+    } catch (err) {
+      alert('Erro ao excluir cliente: ' + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setDeletingCliente(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Search & Actions Bar */}
@@ -411,6 +431,34 @@ export const ClientesView: React.FC<ClientesViewProps> = ({
                               )}
                             </button>
                           )}
+                          {(() => {
+                            const clientInvoicesCount = faturas.filter((f) => f.clientId === cli.id).length;
+                            const clientReadingsCount = leituras.filter((l) => l.clientId === cli.id).length;
+                            const clientTaxasCount = (taxasCoelba || []).filter((t) => t.clientId === cli.id).length;
+                            const hasMovimentacao = clientInvoicesCount > 0 || clientReadingsCount > 0 || clientTaxasCount > 0;
+
+                            if (!hasMovimentacao) {
+                              return (
+                                <button
+                                  onClick={() => setClientToDelete(cli)}
+                                  className="p-1.5 rounded-lg border border-rose-200 text-rose-600 hover:bg-rose-50 hover:border-rose-300 transition cursor-pointer"
+                                  title="Excluir cadastro (sem movimentações)"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              );
+                            }
+
+                            return (
+                              <button
+                                disabled
+                                className="p-1.5 rounded-lg border border-gray-200 text-gray-300 cursor-not-allowed opacity-40"
+                                title={`Cliente possui movimentação vinculada (${clientInvoicesCount} faturas, ${clientReadingsCount} leituras) e não pode ser excluído`}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            );
+                          })()}
                         </div>
                       </td>
                     </tr>
@@ -915,6 +963,75 @@ export const ClientesView: React.FC<ClientesViewProps> = ({
                 className="rounded-xl border border-gray-300 px-4 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 transition"
               >
                 Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Confirmação de Exclusão de Cliente sem Movimentação */}
+      {clientToDelete && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 p-4 backdrop-blur-xs flex items-center justify-center">
+          <div className="w-full max-w-md bg-white rounded-3xl p-6 sm:p-8 shadow-2xl border border-gray-100">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3 mb-4">
+              <div className="flex items-center gap-2">
+                <div className="w-9 h-9 rounded-xl bg-rose-100 text-rose-700 flex items-center justify-center font-bold">
+                  <Trash2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-gray-900">Excluir Cliente</h3>
+                  <p className="text-xs text-gray-500">Apenas cadastros sem movimentação</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setClientToDelete(null)}
+                className="p-1 text-gray-400 hover:text-gray-600 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs text-gray-700 mb-6">
+              <p>
+                Você está prestes a excluir definitivamente o seguinte cliente:
+              </p>
+              <div className="rounded-xl bg-gray-50 p-3.5 border border-gray-200 space-y-1">
+                <p className="font-bold text-gray-900 text-sm">{clientToDelete.name}</p>
+                <p className="text-gray-600">CPF/CNPJ: {clientToDelete.cpfCnpj || 'Não informado'}</p>
+                <p className="text-gray-600 font-mono">Código Coelba: {clientToDelete.clientCodeCoelba || '-'}</p>
+                <p className="text-gray-600">Cidade: {clientToDelete.city || '-'}</p>
+              </div>
+              <p className="text-amber-800 bg-amber-50 p-2.5 rounded-xl border border-amber-200">
+                ⚠️ Este cliente não possui nenhuma fatura ou leitura vinculada. A exclusão removerá o registro permanentemente do banco de dados.
+              </p>
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setClientToDelete(null)}
+                disabled={deletingCliente}
+                className="rounded-xl border border-gray-300 px-4 py-2 font-semibold text-gray-700 hover:bg-gray-50 transition cursor-pointer text-xs"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteCliente}
+                disabled={deletingCliente}
+                className="rounded-xl bg-rose-600 hover:bg-rose-700 px-5 py-2 font-bold text-white transition disabled:opacity-50 flex items-center gap-2 cursor-pointer text-xs shadow-xs"
+              >
+                {deletingCliente ? (
+                  <>
+                    <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Excluindo...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4" />
+                    Confirmar Exclusão
+                  </>
+                )}
               </button>
             </div>
           </div>
