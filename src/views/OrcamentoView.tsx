@@ -17,6 +17,7 @@ import {
   RefreshCw,
   Download,
   Image as ImageIcon,
+  Search,
 } from 'lucide-react';
 import { Cliente, EmpresaConfig, EnergyTariffs, Fatura } from '../types';
 import {
@@ -79,6 +80,21 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
   const [generatingImage, setGeneratingImage] = useState(false);
   const [lastActionStatus, setLastActionStatus] = useState<string>('');
 
+  // Estados da busca interativa de cliente
+  const [clientSearch, setClientSearch] = useState<string>('');
+  const [isClientSearchOpen, setIsClientSearchOpen] = useState(false);
+  const clientSearchRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (clientSearchRef.current && !clientSearchRef.current.contains(event.target as Node)) {
+        setIsClientSearchOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   // Ao alterar o consumo, sincroniza totais mantendo as tarifas unitárias
   const handleConsumptionChange = (newKwh: number) => {
     const val = Math.max(0, newKwh);
@@ -96,9 +112,9 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
     }
   };
 
-  // Ao alterar a Tarifa Unitária Coelba, atualiza o valor total
+  // Ao alterar a Tarifa Unitária Coelba (até 4 casas decimais), atualiza o valor total
   const handleCoelbaTariffChange = (newTariff: number) => {
-    const val = Math.max(0, newTariff);
+    const val = Math.max(0, Math.round(newTariff * 10000) / 10000);
     setCoelbaTariff(val);
     setCoelbaTotal(Math.round(consumptionKwh * val * 100) / 100);
   };
@@ -122,9 +138,13 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
   // Selecionar cliente pré-cadastrado
   const handleSelectClient = (clientId: string) => {
     setSelectedClientId(clientId);
-    if (!clientId) return;
+    if (!clientId) {
+      setClientSearch('');
+      return;
+    }
     const c = clientes.find((cli) => cli.id === clientId);
     if (c) {
+      setClientSearch(c.name || '');
       setClientName(c.name || 'CLIENTE');
       setClientCpf(c.cpfCnpj || '000.000.000-00');
       setClientCity(c.city || empresa.city || 'ITABUNA');
@@ -187,7 +207,7 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
       `Olá, *${clientName}*! Preparamos a simulação da sua fatura de energia solar:\n` +
       `📋 _Orçamento referente à fatura da Coelba apresentada pelo cliente._\n\n` +
       `⚡ *Consumo Estimado:* ${formatNumberBr(consumptionKwh)} kWh\n` +
-      `• *Tarifa Coelba:* ${formatCurrency(coelbaTariff)} por kWh\n` +
+      `• *Tarifa Coelba:* ${formatCurrency(coelbaTariff, true, 4)} por kWh\n` +
       `• *Tarifa Neo Energia:* ${formatCurrency(neoTariff)} por kWh\n\n` +
       `🔥 *DIFERENÇA NO VALOR DO KWH: ${formatNumberBr(savingsPercentage, 1)}% DE ECONOMIA!* 🔥\n` +
       `Você pagará *${formatNumberBr(savingsPercentage, 1)}% a menos* no valor do kWh consumido com a Neo Energia em relação à Coelba!\n\n` +
@@ -647,24 +667,116 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
 
           {/* Dados do Cliente / Prospect para a Proposta */}
           <div className="border-t border-gray-100 pt-3 space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-gray-700">
-                4. Personalizar Dados do Cliente na Fatura:
-              </span>
-              {clientes.length > 0 && (
-                <select
-                  value={selectedClientId}
-                  onChange={(e) => handleSelectClient(e.target.value)}
-                  className="rounded-lg border border-gray-300 bg-gray-50 px-2 py-1 text-xs text-gray-700 font-semibold focus:outline-none"
-                >
-                  <option value="">-- Puxar cliente cadastrado --</option>
-                  {clientes.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name} ({c.clientCodeCoelba || c.meterNumber || 'sem cód'})
-                    </option>
-                  ))}
-                </select>
-              )}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-gray-700">
+                  4. Personalizar Dados do Cliente na Fatura:
+                </span>
+                {selectedClientId && (
+                  <button
+                    type="button"
+                    onClick={() => handleSelectClient('')}
+                    className="text-[11px] font-bold text-rose-600 hover:text-rose-800 transition cursor-pointer"
+                  >
+                    Desvincular cliente
+                  </button>
+                )}
+              </div>
+
+              {/* Campo de Busca Interativo com Autocomplete (não sai da tela) */}
+              <div className="relative w-full" ref={clientSearchRef}>
+                <div className="relative flex items-center">
+                  <Search className="absolute left-3 w-4 h-4 text-gray-400 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={clientSearch}
+                    onFocus={() => setIsClientSearchOpen(true)}
+                    onChange={(e) => {
+                      setClientSearch(e.target.value);
+                      setIsClientSearchOpen(true);
+                    }}
+                    placeholder="🔍 Digite para buscar cliente cadastrado..."
+                    className="w-full rounded-xl border border-gray-300 bg-gray-50 pl-9 pr-8 py-2 text-xs font-bold text-gray-900 focus:bg-white focus:border-emerald-600 focus:outline-none transition shadow-2xs"
+                  />
+                  {clientSearch && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setClientSearch('');
+                        handleSelectClient('');
+                        setIsClientSearchOpen(false);
+                      }}
+                      className="absolute right-2.5 p-1 text-gray-400 hover:text-gray-600 cursor-pointer"
+                      title="Limpar busca"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Lista suspensa contida (max-w-full com overflow-y-auto para não sair da tela) */}
+                {isClientSearchOpen && (
+                  <div className="absolute left-0 right-0 z-40 mt-1 max-h-56 w-full overflow-y-auto rounded-xl border border-gray-200 bg-white p-1.5 shadow-2xl space-y-1">
+                    {clientes.filter((c) => {
+                      if (!clientSearch.trim()) return true;
+                      const term = clientSearch.toLowerCase();
+                      const name = (c.name || '').toLowerCase();
+                      const uc = (c.consumerUnit || '').toLowerCase();
+                      const code = (c.clientCodeCoelba || '').toLowerCase();
+                      const meter = (c.meterNumber || '').toLowerCase();
+                      return name.includes(term) || uc.includes(term) || code.includes(term) || meter.includes(term);
+                    }).length === 0 ? (
+                      <div className="py-3 px-3 text-center text-xs text-gray-500">
+                        Nenhum cliente encontrado para "{clientSearch}"
+                      </div>
+                    ) : (
+                      clientes
+                        .filter((c) => {
+                          if (!clientSearch.trim()) return true;
+                          const term = clientSearch.toLowerCase();
+                          const name = (c.name || '').toLowerCase();
+                          const uc = (c.consumerUnit || '').toLowerCase();
+                          const code = (c.clientCodeCoelba || '').toLowerCase();
+                          const meter = (c.meterNumber || '').toLowerCase();
+                          return name.includes(term) || uc.includes(term) || code.includes(term) || meter.includes(term);
+                        })
+                        .slice(0, 15)
+                        .map((c) => {
+                          const isSelected = c.id === selectedClientId;
+                          return (
+                            <button
+                              key={c.id}
+                              type="button"
+                              onClick={() => {
+                                handleSelectClient(c.id);
+                                setIsClientSearchOpen(false);
+                              }}
+                              className={`w-full text-left p-2 rounded-lg transition flex items-center justify-between gap-2 cursor-pointer ${
+                                isSelected
+                                  ? 'bg-emerald-50 text-emerald-950 font-bold border border-emerald-300'
+                                  : 'hover:bg-gray-100 text-gray-800'
+                              }`}
+                            >
+                              <div className="min-w-0 flex-1">
+                                <p className="text-xs font-black truncate">{c.name}</p>
+                                <p className="text-[10px] text-gray-500 truncate">
+                                  {c.consumerUnit || c.city || ''}{' '}
+                                  {c.clientCodeCoelba ? `• Cód: ${c.clientCodeCoelba}` : ''}
+                                  {c.customCoelbaTariff
+                                    ? ` • Coelba: R$ ${formatCurrency(c.customCoelbaTariff, false, 4)}`
+                                    : ''}
+                                </p>
+                              </div>
+                              {isSelected && (
+                                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                              )}
+                            </button>
+                          );
+                        })
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -770,7 +882,7 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
               <div className="flex items-center justify-between text-xs font-bold text-orange-100">
                 <span>Tarifa Coelba:</span>
                 <span className="text-base font-black text-white">
-                  {formatCurrency(coelbaTariff)}/kWh
+                  {formatCurrency(coelbaTariff, true, 4)}/kWh
                 </span>
               </div>
               <div className="flex items-center justify-between text-xs font-semibold text-orange-100">
@@ -1035,9 +1147,9 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
                     {formatCurrency(neoTotal, false)} REAIS PARA PAGAR.
                   </p>
                   <p>
-                    SE FOSSE NA COELBA, SEGUNDO A CONCESSIONÁRIA PAGARIA {formatCurrency(coelbaTariff, false)} NO KWH,
+                    SE FOSSE NA COELBA, SEGUNDO A CONCESSIONÁRIA PAGARIA {formatCurrency(coelbaTariff, false, 4)} NO KWH,
                     ENTÃO O SENHOR PAGARIA {formatNumberBr(consumptionKwh)} KWH X{' '}
-                    {formatCurrency(coelbaTariff, false)} = {formatCurrency(coelbaTotal, false)} REAIS.
+                    {formatCurrency(coelbaTariff, false, 4)} = {formatCurrency(coelbaTotal, false)} REAIS.
                   </p>
                   <p className="text-yellow-300 font-black text-xs sm:text-sm pt-0.5">
                     DIFERENÇA NO VALOR DO KWH: VOCÊ PAGA {formatNumberBr(savingsPercentage, 1)}% A MENOS ENTRE A NEO ENERGIA E A COELBA!
