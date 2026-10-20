@@ -1097,7 +1097,7 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
                         TOTAL A PAGAR COM DESCONTO:
                       </span>
                       <span className="text-[11px] font-black text-[#1b7a3e]">
-                        {formatNumberBr(savingsPercentage, 1)}% DE ECONOMIA NO VALOR DO KWH
+                        VOCÊ PAGA {formatCurrency(kwhDifference, true, 4)} A MENOS POR KWH ENTRE A NEO ENERGIA E A COELBA!
                       </span>
                     </div>
                     <span className="text-2xl sm:text-3xl font-black text-[#156231] tracking-tight">
