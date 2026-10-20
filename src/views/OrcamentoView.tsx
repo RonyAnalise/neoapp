@@ -172,6 +172,7 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
   const savingsPercentage =
     coelbaTotal > 0 ? Math.round((savingsAmount / coelbaTotal) * 1000) / 10 : 0;
   const annualSavings = Math.round(savingsAmount * 12 * 100) / 100;
+  const kwhDifference = Math.max(0, Math.round((coelbaTariff - neoTariff) * 10000) / 10000);
 
   // Montagem de objeto simulado para a fatura de exemplo
   const simulatedInvoice: Fatura = {
@@ -1152,7 +1153,7 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
                     {formatCurrency(coelbaTariff, false, 4)} = {formatCurrency(coelbaTotal, false)} REAIS.
                   </p>
                   <p className="text-yellow-300 font-black text-xs sm:text-sm pt-0.5">
-                    DIFERENÇA NO VALOR DO KWH: VOCÊ PAGA {formatNumberBr(savingsPercentage, 1)}% A MENOS ENTRE A NEO ENERGIA E A COELBA!
+                    DIFERENÇA NO VALOR DO KWH: VOCÊ PAGA {formatCurrency(kwhDifference, true, 4)} A MENOS POR KWH ENTRE A NEO ENERGIA E A COELBA!
                   </p>
                 </div>
               </div>
