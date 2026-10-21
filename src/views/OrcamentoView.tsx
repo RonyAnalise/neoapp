@@ -172,6 +172,7 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
   const savingsPercentage =
     coelbaTotal > 0 ? Math.round((savingsAmount / coelbaTotal) * 1000) / 10 : 0;
   const annualSavings = Math.round(savingsAmount * 12 * 100) / 100;
+  const annualNeoTotal = Math.round(neoTotal * 12 * 100) / 100;
   const kwhDifference = Math.max(0, Math.round((coelbaTariff - neoTariff) * 10000) / 10000);
 
   // Montagem de objeto simulado para a fatura de exemplo
@@ -210,8 +211,8 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
       `⚡ *Consumo Estimado:* ${formatNumberBr(consumptionKwh)} kWh\n` +
       `• *Tarifa Coelba:* ${formatCurrency(coelbaTariff, true, 4)} por kWh\n` +
       `• *Tarifa Neo Energia:* ${formatCurrency(neoTariff)} por kWh\n\n` +
-      `🔥 *DIFERENÇA NO VALOR DO KWH: ${formatNumberBr(savingsPercentage, 1)}% DE ECONOMIA!* 🔥\n` +
-      `Você pagará *${formatNumberBr(savingsPercentage, 1)}% a menos* no valor do kWh consumido com a Neo Energia em relação à Coelba!\n\n` +
+      `🔥 *DIFERENÇA NO VALOR DO KWH: VOCÊ PAGA ${formatCurrency(kwhDifference, true, 4)} A MENOS POR KWH!* 🔥\n` +
+      `Você pagará *${formatCurrency(kwhDifference, true, 4)} a menos por kWh* consumido com a Neo Energia em relação à Coelba!\n\n` +
       `📄 *Segue em anexo a imagem do orçamento oficial da sua fatura.*\n` +
       `Sem taxas de instalação ou custos extras! Vamos economizar juntos?`
     );
@@ -1284,9 +1285,9 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
                     </span>
                   </div>
                   <div className="bg-orange-600/50 rounded-xl p-1.5 border border-orange-400/40">
-                    <span className="text-[9px] font-black uppercase block text-orange-100">DESCONTO REAL</span>
+                    <span className="text-[9px] font-black uppercase block text-orange-100">VALOR ANUAL ECONOMIZADO</span>
                     <span className="text-xs sm:text-sm font-black text-white">
-                      {formatNumberBr(savingsPercentage, 1)}% OFF
+                      R$ = {formatCurrency(annualSavings, false)}
                     </span>
                   </div>
                   <div className="bg-orange-600/50 rounded-xl p-1.5 border border-orange-400/40">
@@ -1377,7 +1378,7 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
               </div>
               <div className="flex justify-between font-black text-[#e97825] border-t border-emerald-200/80 pt-1">
                 <span>Diferença no valor do kWh:</span>
-                <span className="text-emerald-800 font-black">{formatNumberBr(savingsPercentage, 1)}% a menos</span>
+                <span className="text-emerald-800 font-black">{formatCurrency(kwhDifference, true, 4)} a menos</span>
               </div>
             </div>
 
