@@ -66,13 +66,26 @@ export function calculateInvoice(input: InvoiceCalculationInput): InvoiceCalcula
 
 /**
  * Formats a monetary value to standard Brazilian Real format: "R$ 1.099,00"
+ * Supports up to 4 decimal places for kW energy tariffs (e.g. R$ 1,2150).
  */
-export function formatCurrency(value: number, includeSymbol = true): string {
+export function formatCurrency(value: number, includeSymbol = true, maxDecimals?: number): string {
+  let decimals = 2;
+  if (typeof maxDecimals === 'number') {
+    decimals = Math.max(2, Math.min(4, maxDecimals));
+  } else {
+    // If not specified, automatically preserve up to 4 decimal places if value has decimals beyond 2
+    const str = String(value || 0);
+    const decimalPart = str.split('.')[1] || '';
+    if (decimalPart.length > 2) {
+      decimals = Math.min(4, decimalPart.length);
+    }
+  }
+
   const formatted = new Intl.NumberFormat('pt-BR', {
     style: 'currency',
     currency: 'BRL',
     minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
+    maximumFractionDigits: decimals,
   }).format(value || 0);
 
   if (includeSymbol) return formatted;

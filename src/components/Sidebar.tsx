@@ -33,7 +33,8 @@ export type ActiveTab =
   | 'tarifas'
   | 'usuarios'
   | 'auditoria'
-  | 'sistema';
+  | 'sistema'
+  | 'portal_cliente';
 
 interface SidebarProps {
   activeTab: ActiveTab;
@@ -65,6 +66,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'usuarios' as ActiveTab, label: '12. Usuários e permissões', icon: ShieldCheck, adminOnly: true },
     { id: 'auditoria' as ActiveTab, label: '13. Auditoria', icon: ClipboardList, adminOnly: true },
     { id: 'sistema' as ActiveTab, label: '14. Configurações do sistema', icon: Settings },
+    { id: 'portal_cliente' as ActiveTab, label: '15. Portal do Cliente', icon: Users },
   ];
 
   const handleSelect = (id: ActiveTab) => {

@@ -50,6 +50,7 @@ import { ConfiguracoesEnergiaView } from './views/ConfiguracoesEnergiaView';
 import { UsuariosView } from './views/UsuariosView';
 import { AuditoriaView } from './views/AuditoriaView';
 import { ConfiguracoesSistemaView } from './views/ConfiguracoesSistemaView';
+import { PortalClienteView } from './views/PortalClienteView';
 import { SEED_RECORDS } from './data/seedInvoicesData';
 
 const DEFAULT_EMPRESA: EmpresaConfig = {
@@ -81,10 +82,11 @@ const DEFAULT_TARIFFS: EnergyTariffs = {
 };
 
 function MainApp() {
-  const { currentUser, userProfile, loading: authLoading, isAdmin } = useAuth();
+  const { currentUser, userProfile, loading: authLoading, isAdmin, isClient } = useAuth();
 
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [portalOverrideClientId, setPortalOverrideClientId] = useState<string | undefined>(undefined);
 
   // Firestore collections states
   const [clientes, setClientes] = useState<Cliente[]>([]);
@@ -711,6 +713,36 @@ function MainApp() {
     return <LoginView />;
   }
 
+  // Se o usuário logado for um Cliente, direciona exclusivamente para o Portal do Cliente
+  if (isClient) {
+    return (
+      <>
+        <OfflineIndicator />
+        <PortalClienteView
+          clientes={clientes}
+          faturas={faturas}
+          leituras={leituras}
+          empresa={empresa}
+          onOpenInvoiceModal={(fat) => setViewingFatura(fat)}
+        />
+        {viewingFatura && (
+          <InvoiceModal
+            fatura={viewingFatura}
+            cliente={
+              clientes.find((c) => c.id === viewingFatura.clientId) ||
+              viewingFatura.historicalClientData ||
+              null
+            }
+            empresa={viewingFatura.historicalCompanyData || empresa}
+            allClientInvoices={faturas}
+            onClose={() => setViewingFatura(null)}
+            onOpenBoleto={(fat) => setSelectedBoletoFatura(fat)}
+          />
+        )}
+      </>
+    );
+  }
+
   const getPageTitle = (tab: ActiveTab) => {
     const titles: Record<ActiveTab, { title: string; subtitle: string }> = {
       dashboard: {
@@ -768,6 +800,10 @@ function MainApp() {
       sistema: {
         title: 'Configurações do Sistema & Testes',
         subtitle: 'Validador das 10 regras de negócio, PWA e publicação',
+      },
+      portal_cliente: {
+        title: 'Portal do Cliente (Área do Consumidor)',
+        subtitle: 'Acesso a faturas pagas, download de boletos e acompanhamento de economia',
       },
     };
     return titles[tab] || { title: 'NeoApp', subtitle: '' };
@@ -871,6 +907,10 @@ function MainApp() {
               onDeleteCliente={handleDeleteCliente}
               onOpenInvoiceModal={(fat) => setViewingFatura(fat)}
               onSyncAllSeedInvoices={() => syncAllSeedInvoices(true)}
+              onOpenPortalForClient={(cId) => {
+                setPortalOverrideClientId(cId);
+                setActiveTab('portal_cliente');
+              }}
               isSyncing={isSyncing}
             />
           )}
@@ -978,6 +1018,48 @@ function MainApp() {
           {activeTab === 'auditoria' && <AuditoriaView logs={auditoriaLogs} />}
 
           {activeTab === 'sistema' && <ConfiguracoesSistemaView />}
+
+          {activeTab === 'portal_cliente' && (
+            <div className="space-y-4">
+              <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 no-print">
+                <div>
+                  <span className="text-xs font-black text-emerald-950 uppercase tracking-wide flex items-center gap-2">
+                    <span>👁️ Modo de Simulação do Portal do Cliente</span>
+                    <span className="bg-yellow-100 text-yellow-800 text-[10px] px-2 py-0.5 rounded-full font-bold">
+                      Visão do Administrador
+                    </span>
+                  </span>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    Escolha qual cliente deseja simular para ver as faturas, boletos e economia exatamente como ele vê:
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2 w-full sm:w-auto">
+                  <select
+                    value={portalOverrideClientId || (clientes[0]?.id || '')}
+                    onChange={(e) => setPortalOverrideClientId(e.target.value)}
+                    className="w-full sm:w-72 rounded-xl border border-gray-300 p-2 text-xs font-bold text-gray-900 bg-gray-50 focus:bg-white focus:border-emerald-600 focus:outline-none"
+                  >
+                    {clientes.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name} • Medidor: {c.meterNumber || c.consumerUnit || c.clientCodeCoelba}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <PortalClienteView
+                clientes={clientes}
+                faturas={faturas}
+                leituras={leituras}
+                empresa={empresa}
+                overrideClientId={portalOverrideClientId || (clientes[0]?.id || undefined)}
+                onOpenInvoiceModal={(fat) => setViewingFatura(fat)}
+                onBackToAdmin={() => setActiveTab('dashboard')}
+              />
+            </div>
+          )}
         </main>
       </div>
 

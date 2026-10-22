@@ -19,6 +19,9 @@ import {
   FileSpreadsheet,
   Zap,
   Trash2,
+  ExternalLink,
+  KeyRound,
+  Copy,
 } from 'lucide-react';
 import { Cliente, Fatura, Leitura, EnergyTariffs, TaxaCoelba } from '../types';
 import { fetchAddressByCep, formatCep } from '../lib/cepService';
@@ -37,6 +40,7 @@ interface ClientesViewProps {
   onDeleteCliente?: (clienteId: string) => Promise<void>;
   onOpenInvoiceModal: (fatura: Fatura) => void;
   onSyncAllSeedInvoices?: () => Promise<void>;
+  onOpenPortalForClient?: (clientId: string) => void;
   isSyncing?: boolean;
 }
 
@@ -51,9 +55,11 @@ export const ClientesView: React.FC<ClientesViewProps> = ({
   onDeleteCliente,
   onOpenInvoiceModal,
   onSyncAllSeedInvoices,
+  onOpenPortalForClient,
   isSyncing,
 }) => {
-  const { userProfile, isAdmin } = useAuth();
+  const { userProfile, isAdmin, clientCreateAuthAccount } = useAuth();
+  const [copiedAccessText, setCopiedAccessText] = useState(false);
 
   // Search & Filters
   const [searchTerm, setSearchTerm] = useState('');
@@ -226,6 +232,21 @@ export const ClientesView: React.FC<ClientesViewProps> = ({
       }
 
       await onSaveCliente(payload, isNew);
+
+      // Se foi informada senha e email para o portal, provisiona a conta no Auth
+      if (payload.email && payload.portalPassword && clientCreateAuthAccount) {
+        try {
+          await clientCreateAuthAccount(
+            payload.name || 'Cliente',
+            payload.email,
+            payload.portalPassword,
+            editingCliente?.id,
+            payload.cpfCnpj
+          );
+        } catch (authErr) {
+          console.log('Conta de autenticação criada ou atualizada:', authErr);
+        }
+      }
 
       // Prepara objeto seguro para trilha de auditoria
       const auditPayload: Record<string, any> = {};
@@ -414,6 +435,15 @@ export const ClientesView: React.FC<ClientesViewProps> = ({
                           >
                             <Edit2 className="w-4 h-4" />
                           </button>
+                          {onOpenPortalForClient && (
+                            <button
+                              onClick={() => onOpenPortalForClient(cli.id)}
+                              className="p-1.5 rounded-lg border border-yellow-200 bg-yellow-50 text-yellow-800 hover:bg-yellow-100 hover:border-yellow-300 transition cursor-pointer"
+                              title="Acessar / Visualizar como Portal do Cliente"
+                            >
+                              <ExternalLink className="w-4 h-4" />
+                            </button>
+                          )}
                           {isAdmin && (
                             <button
                               onClick={() => onToggleStatus(cli.id, cli.status)}
@@ -748,16 +778,88 @@ export const ClientesView: React.FC<ClientesViewProps> = ({
                           customCoelbaTariff: e.target.value === '' ? undefined : Number(e.target.value),
                         })
                       }
-                      placeholder={`Padrão atual: R$ ${(tariffs?.coelbaReferenceTariff ?? 1.21).toFixed(2)}`}
+                      placeholder={`Padrão atual: R$ ${formatCurrency(tariffs?.coelbaReferenceTariff ?? 1.21, false, 4)}`}
                       className="w-full rounded-lg border border-amber-300 p-2 text-gray-900 bg-white font-mono font-bold"
                     />
                     <span className="text-[10px] text-amber-700 mt-1 block">
                       {formData.customCoelbaTariff && formData.customCoelbaTariff > 0
-                        ? `Personalizado: R$ ${Number(formData.customCoelbaTariff).toFixed(2)}/kWh`
-                        : `Em branco: usará padrão geral (R$ ${(tariffs?.coelbaReferenceTariff ?? 1.21).toFixed(2)}/kWh)`}
+                        ? `Personalizado: R$ ${formatCurrency(formData.customCoelbaTariff, false, 4)}/kWh`
+                        : `Em branco: usará padrão geral (R$ ${formatCurrency(tariffs?.coelbaReferenceTariff ?? 1.21, false, 4)}/kWh)`}
                     </span>
                   </div>
                 </div>
+              </div>
+
+              {/* Acesso do Cliente ao Portal (Login & Senha) */}
+              <div className="pt-2 border-t border-gray-100 bg-emerald-50/60 -mx-6 sm:-mx-8 px-6 sm:px-8 py-4 border-b border-emerald-100">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <KeyRound className="w-4 h-4 text-emerald-800" />
+                    <span className="font-black text-emerald-950 text-xs uppercase tracking-wide">
+                      Acesso do Cliente ao Portal (Login & Senha)
+                    </span>
+                  </div>
+                  <span className="text-[10px] bg-emerald-200/80 text-emerald-900 font-bold px-2 py-0.5 rounded-full">
+                    Portal do Cliente
+                  </span>
+                </div>
+                <p className="text-[11px] text-emerald-800 mb-3">
+                  O cliente acessará faturas pagas, boletos disponíveis para download e o acompanhamento de economia usando o e-mail cadastrado e esta senha.
+                </p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-bold text-gray-700 mb-1">
+                      E-mail de Login do Cliente
+                    </label>
+                    <input
+                      type="text"
+                      disabled
+                      value={formData.email || '(Preencha o e-mail acima)'}
+                      className="w-full rounded-xl border border-gray-200 bg-gray-100 p-2 text-gray-600 font-medium text-xs cursor-not-allowed"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-gray-700 mb-1">
+                      Senha de Acesso do Cliente
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.portalPassword || ''}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          portalPassword: e.target.value,
+                          portalAccessActive: true,
+                        })
+                      }
+                      placeholder="Ex: neo123456 ou senha desejada"
+                      className="w-full rounded-xl border border-emerald-300 bg-white p-2 text-gray-900 font-bold text-xs focus:border-emerald-600 focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                {formData.email && formData.portalPassword && (
+                  <div className="mt-3 flex items-center justify-between pt-2 border-t border-emerald-200/60">
+                    <span className="text-[11px] text-emerald-900 font-semibold">
+                      Pronto para envio ao cliente:
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const zapMsg = `Olá, *${formData.name || 'Cliente'}*! Seu acesso ao *Portal do Cliente Neo Energia* está liberado!\n\nLá você pode consultar suas faturas pagas, baixar seus boletos bancários em PDF e acompanhar toda sua economia em dinheiro mês a mês!\n\n🔗 *Acesso:* ${window.location.origin}\n📧 *Login:* ${formData.email}\n🔑 *Senha:* ${formData.portalPassword}\n\nQualquer dúvida estamos à disposição!`;
+                        navigator.clipboard.writeText(zapMsg);
+                        setCopiedAccessText(true);
+                        setTimeout(() => setCopiedAccessText(false), 3000);
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-[11px] transition cursor-pointer shadow-2xs"
+                    >
+                      {copiedAccessText ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copiedAccessText ? 'Texto Copiado!' : 'Copiar Acesso para WhatsApp'}</span>
+                    </button>
+                  </div>
+                )}
               </div>
 
               <div>
@@ -823,8 +925,8 @@ export const ClientesView: React.FC<ClientesViewProps> = ({
                   <span className="font-semibold text-amber-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
                     Ref. Coelba:{' '}
                     {detailCliente.customCoelbaTariff && detailCliente.customCoelbaTariff > 0
-                      ? `R$ ${detailCliente.customCoelbaTariff.toFixed(2)}/kWh (Personalizada)`
-                      : `R$ ${(tariffs?.coelbaReferenceTariff ?? 1.21).toFixed(2)}/kWh (Padrão Geral)`}
+                      ? `R$ ${formatCurrency(detailCliente.customCoelbaTariff, false, 4)}/kWh (Personalizada)`
+                      : `R$ ${formatCurrency(tariffs?.coelbaReferenceTariff ?? 1.21, false, 4)}/kWh (Padrão Geral)`}
                   </span>
                 </div>
               </div>

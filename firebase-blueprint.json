@@ -8,8 +8,9 @@
         "uid": { "type": "string" },
         "name": { "type": "string", "maxLength": 100 },
         "email": { "type": "string", "maxLength": 150 },
-        "role": { "type": "string", "enum": ["admin", "operator"] },
+        "role": { "type": "string", "enum": ["admin", "operator", "cliente"] },
         "active": { "type": "boolean" },
+        "clientId": { "type": "string" },
         "createdAt": { "type": "string" },
         "lastLoginAt": { "type": "string" }
       },
@@ -38,6 +39,8 @@
         "customNeoTariff": { "type": "number" },
         "customCoelbaTariff": { "type": "number" },
         "status": { "type": "string", "enum": ["active", "inactive"] },
+        "portalAccessActive": { "type": "boolean" },
+        "portalPassword": { "type": "string", "maxLength": 100 },
         "notes": { "type": "string", "maxLength": 500 },
         "createdAt": { "type": "string" }
       },

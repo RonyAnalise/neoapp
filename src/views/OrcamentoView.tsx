@@ -66,7 +66,7 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
   const [clientCodeCoelba, setClientCodeCoelba] = useState<string>('7092185421');
   const [meterNumber, setMeterNumber] = useState<string>('09218542');
   const [phoneForZap, setPhoneForZap] = useState<string>('');
-//a
+
   // Datas simuladas
   const now = new Date();
   const [refMonth, setRefMonth] = useState<number>(now.getMonth() + 1);
@@ -889,7 +889,7 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
               </div>
               <div className="flex items-center justify-between text-xs font-semibold text-orange-100">
                 <span>Diferença no valor do kWh:</span>
-                <span className="text-yellow-300 font-black">{formatNumberBr(savingsPercentage, 1)}% a menos</span>
+                <span className="text-yellow-300 font-black">{formatCurrency(kwhDifference, true, 4)} a menos</span>
               </div>
               <div className="flex items-center justify-between text-xs font-semibold text-orange-100">
                 <span>Tarifa Neo Energia:</span>
@@ -1090,7 +1090,6 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
                     </span>
                   </div>
 
-                  {/* Bloco 6: Total a pagar com desconto */}
                   {/* Bloco 6: Total a pagar com desconto */}
                   <div className="border-2 border-[#1b7a3e] rounded-2xl px-4 py-3 bg-white flex items-center justify-between">
                     <div>

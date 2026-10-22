@@ -250,9 +250,9 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
             </p>
             <p>
               SE FOSSE NA COELBA, SEGUNDO A ÚLTIMA FATURA PAGOU{' '}
-              {formatCurrency(fatura.appliedCoelbaTariff, false)} NO KWH, ENTÃO O SENHOR PAGARIA{' '}
+              {formatCurrency(fatura.appliedCoelbaTariff, false, 4)} NO KWH, ENTÃO O SENHOR PAGARIA{' '}
               {formatNumberBr(fatura.consumptionKwh)} KWH X{' '}
-              {formatCurrency(fatura.appliedCoelbaTariff, false)} ={' '}
+              {formatCurrency(fatura.appliedCoelbaTariff, false, 4)} ={' '}
               {formatCurrency(fatura.coelbaEstimateAmount, false)} REAIS.
             </p>
             <p className="text-yellow-200 font-bold">

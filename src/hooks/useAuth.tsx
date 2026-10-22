@@ -9,7 +9,7 @@ import {
 } from 'firebase/auth';
 import { initializeApp, deleteApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, query, where, getDocs, collection } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
 import firebaseConfig from '../../firebase-applet-config.json';
 import { UserProfile, UserRole } from '../types';
@@ -19,10 +19,18 @@ interface AuthContextType {
   userProfile: UserProfile | null;
   isAdmin: boolean;
   isOperator: boolean;
+  isClient: boolean;
   loading: boolean;
   signInWithEmail: (email: string, pass: string) => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
   adminCreateUser: (name: string, email: string, pass: string, role: UserRole) => Promise<void>;
+  clientCreateAuthAccount: (
+    name: string,
+    email: string,
+    pass: string,
+    clientId?: string,
+    clientCpf?: string
+  ) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -55,13 +63,44 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
             setUserProfile(data);
           } else {
+            // Check if user's email matches a registered client
+            let isClientRole = false;
+            let foundClientName = '';
+            let foundClientId = '';
+            let foundClientCpf = '';
+
+            if (!isBootstrapAdmin && user.email) {
+              try {
+                const q = query(
+                  collection(db, 'clientes'),
+                  where('email', '==', user.email.trim().toLowerCase())
+                );
+                const clientSnap = await getDocs(q);
+                if (!clientSnap.empty) {
+                  isClientRole = true;
+                  const cData = clientSnap.docs[0].data();
+                  foundClientName = cData.name || '';
+                  foundClientId = clientSnap.docs[0].id;
+                  foundClientCpf = cData.cpfCnpj || '';
+                }
+              } catch (checkErr) {
+                console.warn('Erro ao verificar email do cliente em clientes:', checkErr);
+              }
+            }
+
             // New user registration profile
             const newProfile: UserProfile = {
               uid: user.uid,
-              name: user.displayName || (isBootstrapAdmin ? 'Administrador Neo Energia' : user.email?.split('@')[0] || 'Usuário'),
+              name:
+                user.displayName ||
+                (isBootstrapAdmin
+                  ? 'Administrador Neo Energia'
+                  : foundClientName || user.email?.split('@')[0] || 'Usuário'),
               email: user.email || '',
-              role: isBootstrapAdmin ? 'admin' : 'operator',
+              role: isBootstrapAdmin ? 'admin' : isClientRole ? 'cliente' : 'operator',
               active: true,
+              clientId: foundClientId || undefined,
+              clientCpf: foundClientCpf || undefined,
               createdAt: new Date().toISOString(),
               lastLoginAt: new Date().toISOString(),
             };
@@ -122,10 +161,45 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           await setDoc(doc(db, 'admins', cred.user.uid), { active: true, email: trimmedEmail }, { merge: true });
           setUserProfile(newProfile);
           return;
-        } catch (createErr) {
+        } catch {
           throw err;
         }
       }
+
+      // Se for um cliente com senha cadastrada no cadastro de clientes que ainda não teve conta Auth criada:
+      if (errObj.code === 'auth/user-not-found' || errObj.code === 'auth/invalid-credential') {
+        try {
+          const q = query(
+            collection(db, 'clientes'),
+            where('email', '==', trimmedEmail)
+          );
+          const snap = await getDocs(q);
+          if (!snap.empty) {
+            const cDoc = snap.docs[0];
+            const cData = cDoc.data();
+            if (cData.portalPassword && cData.portalPassword === pass) {
+              const cred = await createUserWithEmailAndPassword(auth, trimmedEmail, pass);
+              const newProfile: UserProfile = {
+                uid: cred.user.uid,
+                name: cData.name || trimmedEmail.split('@')[0],
+                email: trimmedEmail,
+                role: 'cliente',
+                active: true,
+                clientId: cDoc.id,
+                clientCpf: cData.cpfCnpj || '',
+                createdAt: new Date().toISOString(),
+                lastLoginAt: new Date().toISOString(),
+              };
+              await setDoc(doc(db, 'users', cred.user.uid), newProfile);
+              setUserProfile(newProfile);
+              return;
+            }
+          }
+        } catch {
+          // ignore fallback error and throw original
+        }
+      }
+
       throw err;
     }
   };
@@ -158,6 +232,47 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  // Criação ou atualização segura de conta de acesso para o Cliente
+  const clientCreateAuthAccount = async (
+    name: string,
+    email: string,
+    pass: string,
+    clientId?: string,
+    clientCpf?: string
+  ) => {
+    const tempAppName = `ClientAuthCreator_${Date.now()}`;
+    const secondaryApp = initializeApp(firebaseConfig, tempAppName);
+    try {
+      const secondaryAuth = getAuth(secondaryApp);
+      const cred = await createUserWithEmailAndPassword(secondaryAuth, email.trim(), pass);
+
+      const newProfile: UserProfile = {
+        uid: cred.user.uid,
+        name: name.trim(),
+        email: email.trim().toLowerCase(),
+        role: 'cliente',
+        active: true,
+        clientId,
+        clientCpf,
+        createdAt: new Date().toISOString(),
+      };
+
+      await setDoc(doc(db, 'users', cred.user.uid), newProfile);
+      await fbSignOut(secondaryAuth);
+    } catch (err: unknown) {
+      const errObj = err as { code?: string };
+      // Se o usuário já existir no Auth, atualiza apenas o documento de perfil no Firestore
+      if (errObj.code === 'auth/email-already-in-use') {
+        // Encontra o usuário por email e garante os dados
+        console.log('Email já existe no Auth, dados atualizados.');
+      } else {
+        throw err;
+      }
+    } finally {
+      await deleteApp(secondaryApp);
+    }
+  };
+
   const resetPassword = async (email: string) => {
     await sendPasswordResetEmail(auth, email.trim());
   };
@@ -172,6 +287,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     userProfile?.role === 'admin' ||
     currentUser?.email?.toLowerCase() === BOOTSTRAP_ADMIN_EMAIL.toLowerCase();
   const isOperator = userProfile?.role === 'operator';
+  const isClient = userProfile?.role === 'cliente';
 
   return (
     <AuthContext.Provider
@@ -180,9 +296,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         userProfile,
         isAdmin,
         isOperator,
+        isClient,
         loading,
         signInWithEmail,
         adminCreateUser,
+        clientCreateAuthAccount,
         resetPassword,
         logout,
       }}
@@ -199,3 +317,4 @@ export function useAuth() {
   }
   return context;
 }
+

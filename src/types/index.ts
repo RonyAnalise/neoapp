@@ -1,4 +1,4 @@
-export type UserRole = 'admin' | 'operator';
+export type UserRole = 'admin' | 'operator' | 'cliente';
 
 export interface UserProfile {
   uid: string;
@@ -6,6 +6,8 @@ export interface UserProfile {
   email: string;
   role: UserRole;
   active: boolean;
+  clientId?: string;
+  clientCpf?: string;
   createdAt: string;
   lastLoginAt?: string;
 }
@@ -32,6 +34,8 @@ export interface Cliente {
   customNeoTariff?: number;
   customCoelbaTariff?: number;
   status: ClientStatus;
+  portalAccessActive?: boolean;
+  portalPassword?: string;
   notes?: string;
   createdAt: string;
   updatedAt?: string;
