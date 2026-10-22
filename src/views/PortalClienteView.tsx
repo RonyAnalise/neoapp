@@ -203,7 +203,7 @@ export const PortalClienteView: React.FC<PortalClienteViewProps> = ({
       .reduce((acc, f) => acc + (f.coelbaEstimateAmount || 0), 0);
   }, [clientFaturas, currentYear]);
 
-  // Download do boleto
+  // Download do boleto bancário (disponível exclusivamente se tiver arquivo anexado)
   const handleDownloadBoleto = (fat: Fatura) => {
     setDownloadError(null);
     try {
@@ -213,8 +213,11 @@ export const PortalClienteView: React.FC<PortalClienteViewProps> = ({
           `Boleto_NeoEnergia_${String(fat.referenceMonth).padStart(2, '0')}_${fat.referenceYear}.pdf`;
         downloadBoletoFile(fat.boletoBase64, fileName);
       } else {
-        // Se não tiver boleto em PDF anexado, abre a fatura para visualização e impressão
-        onOpenInvoiceModal(fat);
+        // Se não tiver boleto em PDF anexado (ou após ser excluído), não baixa nada e orienta a ver a fatura
+        setDownloadError(
+          'Esta fatura não possui boleto bancário anexado para download. Você pode visualizar a fatura oficial.'
+        );
+        setTimeout(() => setDownloadError(null), 5000);
       }
     } catch (err) {
       console.error('Erro ao baixar boleto:', err);
@@ -402,49 +405,71 @@ export const PortalClienteView: React.FC<PortalClienteViewProps> = ({
         {/* 1. ABA DE FATURAS E BOLETOS */}
         {activeTab === 'faturas' && (
           <div className="space-y-6">
-            {/* Banner de Boletos Pendentes com Ação Rápida */}
-            {pendingFaturas.length > 0 && (
-              <div className="rounded-2xl bg-gradient-to-r from-amber-500 to-[#e97825] p-5 text-white shadow-md flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="bg-white/20 text-white text-[11px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider">
-                      BOLETO DISPONÍVEL PARA PAGAMENTO
-                    </span>
-                    <span className="text-xs">⚡</span>
+            {/* Banner de Boletos / Faturas Pendentes com Ação Rápida */}
+            {pendingFaturas.length > 0 && (() => {
+              const pendingFat = pendingFaturas[0];
+              const hasBoleto = !!(pendingFat.boletoBase64 || pendingFat.boletoStoragePath);
+
+              return (
+                <div
+                  className={`rounded-2xl p-5 text-white shadow-md flex flex-col md:flex-row items-start md:items-center justify-between gap-4 ${
+                    hasBoleto
+                      ? 'bg-gradient-to-r from-amber-500 to-[#e97825]'
+                      : 'bg-gradient-to-r from-emerald-800 to-[#0c3319]'
+                  }`}
+                >
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="bg-white/20 text-white text-[11px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider">
+                        {hasBoleto ? 'BOLETO DISPONÍVEL PARA DOWNLOAD' : 'FATURA EM ABERTO'}
+                      </span>
+                      <span className="text-xs">⚡</span>
+                    </div>
+                    <h3 className="text-xl sm:text-2xl font-black mt-2">
+                      Fatura de {formatReferencePeriod(pendingFat.referenceMonth, pendingFat.referenceYear)}
+                    </h3>
+                    <p className="text-xs text-amber-100 mt-1">
+                      Vencimento em: <strong>{formatDateBr(pendingFat.dueDate)}</strong> • Total a pagar:{' '}
+                      <strong className="text-yellow-200 text-sm">
+                        {formatCurrency(pendingFat.totalToPay)}
+                      </strong>{' '}
+                      (Você já economizou {formatCurrency(pendingFat.savingsAmount)} nesta fatura!)
+                    </p>
+                    {!hasBoleto && (
+                      <p className="text-[11px] text-emerald-200/90 mt-1">
+                        * Boleto bancário ainda não anexado. Visualize a fatura oficial para conferir o demonstrativo e dados de pagamento.
+                      </p>
+                    )}
                   </div>
-                  <h3 className="text-xl sm:text-2xl font-black mt-2">
-                    Fatura de {formatReferencePeriod(pendingFaturas[0].referenceMonth, pendingFaturas[0].referenceYear)}
-                  </h3>
-                  <p className="text-xs text-amber-100 mt-1">
-                    Vencimento em: <strong>{formatDateBr(pendingFaturas[0].dueDate)}</strong> • Total a pagar:{' '}
-                    <strong className="text-yellow-200 text-sm">
-                      {formatCurrency(pendingFaturas[0].totalToPay)}
-                    </strong>{' '}
-                    (Você já economizou {formatCurrency(pendingFaturas[0].savingsAmount)} nesta fatura!)
-                  </p>
-                </div>
 
-                <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
-                  <button
-                    type="button"
-                    onClick={() => handleDownloadBoleto(pendingFaturas[0])}
-                    className="flex-1 md:flex-initial flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-white text-emerald-950 font-black text-xs uppercase tracking-wider hover:bg-emerald-50 transition shadow cursor-pointer"
-                  >
-                    <Download className="w-4 h-4 text-emerald-700" />
-                    <span>Baixar Boleto (PDF)</span>
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+                    {hasBoleto && (
+                      <button
+                        type="button"
+                        onClick={() => handleDownloadBoleto(pendingFat)}
+                        className="flex-1 md:flex-initial flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-white text-emerald-950 font-black text-xs uppercase tracking-wider hover:bg-emerald-50 transition shadow cursor-pointer"
+                      >
+                        <Download className="w-4 h-4 text-emerald-700" />
+                        <span>Baixar Boleto (PDF)</span>
+                      </button>
+                    )}
 
-                  <button
-                    type="button"
-                    onClick={() => onOpenInvoiceModal(pendingFaturas[0])}
-                    className="flex items-center justify-center gap-1.5 px-4 py-3 rounded-xl bg-emerald-900/40 hover:bg-emerald-900/60 text-white font-bold text-xs transition border border-white/30 cursor-pointer"
-                  >
-                    <FileText className="w-4 h-4" />
-                    <span>Visualizar Fatura</span>
-                  </button>
+                    <button
+                      type="button"
+                      onClick={() => onOpenInvoiceModal(pendingFat)}
+                      className={`flex items-center justify-center gap-1.5 px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${
+                        !hasBoleto
+                          ? 'bg-yellow-400 hover:bg-yellow-300 text-emerald-950 font-black shadow-md'
+                          : 'bg-emerald-900/40 hover:bg-emerald-900/60 text-white border border-white/30'
+                      }`}
+                    >
+                      <FileText className="w-4 h-4" />
+                      <span>Visualizar Fatura</span>
+                    </button>
+                  </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
             {/* Filtros da Lista de Faturas */}
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-gray-200 shadow-xs">
@@ -598,25 +623,39 @@ export const PortalClienteView: React.FC<PortalClienteViewProps> = ({
 
                       {/* Botões de Ação para o Cliente */}
                       <div className="mt-4 pt-3 border-t border-gray-100 space-y-2">
-                        {/* Se a fatura está em aberto, o botão de baixar boleto é o principal */}
-                        {!isPaid && (
+                        {/* Download do boleto: SÓ disponível se tiver boleto feito upload na fatura */}
+                        {hasBoleto ? (
                           <button
                             type="button"
                             onClick={() => handleDownloadBoleto(fat)}
-                            className="w-full flex items-center justify-center gap-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-black py-2.5 px-3 text-xs shadow transition cursor-pointer"
+                            className="w-full flex items-center justify-center gap-2 rounded-xl bg-orange-600 hover:bg-orange-700 text-white font-black py-2.5 px-3 text-xs shadow-xs transition cursor-pointer"
+                            title="Baixar Boleto Bancário (PDF)"
                           >
                             <Download className="w-4 h-4" />
-                            <span>{hasBoleto ? 'Baixar Boleto Bancário (PDF)' : 'Baixar 2ª Via do Boleto'}</span>
+                            <span>Baixar Boleto Bancário (PDF)</span>
                           </button>
+                        ) : (
+                          <div className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gray-50 border border-gray-200 text-gray-500 text-[11px] font-medium">
+                            <FileText className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                            <span>
+                              {isPaid
+                                ? 'Boleto excluído após pagamento'
+                                : 'Boleto não anexado (consulte a fatura)'}
+                            </span>
+                          </div>
                         )}
 
                         <div className="flex gap-2">
                           <button
                             type="button"
                             onClick={() => onOpenInvoiceModal(fat)}
-                            className="flex-1 flex items-center justify-center gap-1.5 rounded-xl border border-gray-300 bg-white hover:bg-gray-50 py-2 px-3 text-xs font-bold text-gray-700 transition cursor-pointer shadow-2xs"
+                            className={`flex-1 flex items-center justify-center gap-1.5 rounded-xl py-2 px-3 text-xs font-bold transition cursor-pointer ${
+                              !hasBoleto
+                                ? 'bg-emerald-700 hover:bg-emerald-800 text-white font-black shadow-xs'
+                                : 'border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 shadow-2xs'
+                            }`}
                           >
-                            <FileText className="w-3.5 h-3.5 text-emerald-700" />
+                            <FileText className={`w-3.5 h-3.5 ${!hasBoleto ? 'text-white' : 'text-emerald-700'}`} />
                             <span>Ver Fatura Oficial</span>
                           </button>
 
