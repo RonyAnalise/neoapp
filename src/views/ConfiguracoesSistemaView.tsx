@@ -10,9 +10,13 @@ import {
   FileCode,
   Shield,
   HelpCircle,
+  BellRing,
+  Bell,
+  Send,
 } from 'lucide-react';
 import { calculateInvoice } from '../lib/calculations';
 import { PWAInstallButton } from '../components/PWAInstallButton';
+import { triggerTestMobileNotification } from '../lib/notificationService';
 
 interface TestResult {
   id: number;
@@ -27,6 +31,51 @@ interface TestResult {
 export const ConfiguracoesSistemaView: React.FC = () => {
   const [testResults, setTestResults] = useState<TestResult[] | null>(null);
   const [runningTests, setRunningTests] = useState(false);
+  const [pushTestStatus, setPushTestStatus] = useState<string | null>(null);
+  const [sendingPush, setSendingPush] = useState(false);
+
+  const handleTestPushAll = async (delaySeconds: number = 0) => {
+    setSendingPush(true);
+    setPushTestStatus(
+      delaySeconds > 0
+        ? `⏳ Alerta agendado! Disparando para todos os celulares em ${delaySeconds}s (feche o app ou bloqueie a tela agora)...`
+        : 'Disparando alerta para todos os aparelhos conectados...'
+    );
+
+    try {
+      const res = await fetch('/api/push/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          delaySeconds,
+          payload: {
+            title: '⚡ Nova Fatura Lançada — Neo Energia',
+            body: 'Sua fatura de energia já está disponível para consulta no Portal do Cliente.',
+            icon: '/pwa-192x192.png',
+            tag: `test-admin-${Date.now()}`,
+            data: { url: '/?tab=portal_cliente' },
+          },
+        }),
+      });
+
+      const data = await res.json();
+      if (data.scheduled) {
+        setPushTestStatus(
+          `✅ Disparo agendado para ${data.total || 1} aparelho(s)! Toque para fechar o app ou bloquear o celular.`
+        );
+      } else if (data.success) {
+        setPushTestStatus(
+          `✅ Notificação enviada com sucesso para ${data.sentCount} aparelho(s) (Total cadastrado: ${data.total})!`
+        );
+      } else {
+        setPushTestStatus(`⚠️ Aviso: ${data.error || 'Nenhum aparelho cadastrado no momento'}`);
+      }
+    } catch (err: any) {
+      setPushTestStatus(`❌ Erro no envio: ${err.message}`);
+    } finally {
+      setSendingPush(false);
+    }
+  };
 
   const runAutomatedTests = () => {
     setRunningTests(true);
@@ -388,6 +437,52 @@ export const ConfiguracoesSistemaView: React.FC = () => {
             </p>
           </div>
         </div>
+      </div>
+
+      {/* Card de Teste do Web Push na Barra do Celular (com App Fechado) */}
+      <div className="bg-white rounded-2xl p-6 sm:p-8 border border-emerald-200/90 shadow-xs">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-gray-100 pb-4 mb-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center">
+              <BellRing className="w-5 h-5 text-emerald-700" />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-gray-900">
+                Disparar Teste de Notificação Push nos Celulares (App Fechado)
+              </h3>
+              <p className="text-xs text-gray-500">
+                Envia uma notificação Web Push nativa (VAPID) para a barra de status e tela de bloqueio de todos os smartphones cadastrados.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => handleTestPushAll(0)}
+              disabled={sendingPush}
+              className="flex items-center gap-1.5 rounded-xl bg-emerald-700 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-800 transition shadow-xs cursor-pointer disabled:opacity-50"
+            >
+              <Send className="w-3.5 h-3.5" />
+              <span>{sendingPush ? 'Enviando...' : 'Disparar Imediato'}</span>
+            </button>
+
+            <button
+              onClick={() => handleTestPushAll(5)}
+              disabled={sendingPush}
+              className="flex items-center gap-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 px-4 py-2 text-xs font-bold text-white transition shadow-xs cursor-pointer disabled:opacity-50"
+              title="Dá 5 segundos para você bloquear a tela do celular ou fechar o app"
+            >
+              <Bell className="w-3.5 h-3.5 text-yellow-200" />
+              <span>Testar com Delay 5s (Fechar App)</span>
+            </button>
+          </div>
+        </div>
+
+        {pushTestStatus && (
+          <div className="p-3.5 rounded-xl bg-gray-50 border border-gray-200 text-xs font-bold text-gray-800 animate-in fade-in">
+            {pushTestStatus}
+          </div>
+        )}
       </div>
 
       {/* Deployment & Production Guide (GitHub & Vercel) */}

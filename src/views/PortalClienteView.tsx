@@ -56,6 +56,7 @@ import {
   isIOSDevice,
   isAndroidDevice,
   isStandalonePWA,
+  triggerTestMobileNotification,
 } from '../lib/notificationService';
 import { useAuth } from '../hooks/useAuth';
 
@@ -325,6 +326,8 @@ export const PortalClienteView: React.FC<PortalClienteViewProps> = ({
   }, [primaryClient.id, primaryClient.email, linkedClients, isAdmin, userEmail]);
 
   // Ativação de notificações no celular (mesmo com app fechado)
+  const [testingPushCountdown, setTestingPushCountdown] = useState<number | null>(null);
+
   const handleEnableNotifications = async () => {
     // No iOS (iPhone/iPad), o sistema Apple exige que o PWA esteja adicionado à Tela de Início para push com app fechado
     if (isIOSDevice() && !isStandalonePWA()) {
@@ -332,9 +335,14 @@ export const PortalClienteView: React.FC<PortalClienteViewProps> = ({
       return;
     }
 
-    const isAdm = isAdmin || userEmail === 'ronycvcsales@gmail.com';
+    const isAdm = Boolean(
+      isAdmin ||
+      userEmail === 'ronycvcsales@gmail.com' ||
+      userEmail === 'rony@gmail.com' ||
+      (userEmail && userEmail.toLowerCase().includes('rony'))
+    );
     const allLinkedIds = linkedClients.map((c) => c.id);
-    await enableAndSubscribeToPush(
+    const res = await enableAndSubscribeToPush(
       primaryClient.id || 'cliente',
       primaryClient.email || userEmail,
       allLinkedIds,
@@ -342,6 +350,13 @@ export const PortalClienteView: React.FC<PortalClienteViewProps> = ({
     );
     const updated = getNotificationPermission();
     setPermissionStatus(updated);
+
+    if (res.success || updated === 'granted') {
+      // Dispara teste agendado de 5s para o usuário ver tocar na barra com o app fechado
+      setTestingPushCountdown(5);
+      await triggerTestMobileNotification(primaryClient.name, primaryClient.id, 5);
+      setTimeout(() => setTestingPushCountdown(null), 6000);
+    }
   };
 
   return (
@@ -1225,6 +1240,59 @@ export const PortalClienteView: React.FC<PortalClienteViewProps> = ({
                       </div>
                     </div>
                   ))}
+                </div>
+              </div>
+
+              {/* Notificações no Celular com App Fechado */}
+              <div className="pt-4 border-t border-gray-100 rounded-xl bg-emerald-50/70 border border-emerald-200/80 p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <BellRing className="w-4 h-4 text-emerald-700" />
+                    <h4 className="text-xs font-black text-gray-900">
+                      Notificações na Barra do Celular (com App Fechado)
+                    </h4>
+                    {permissionStatus === 'granted' && (
+                      <span className="bg-emerald-100 text-emerald-800 text-[10px] font-black px-2 py-0.5 rounded-full border border-emerald-300">
+                        CONECTADO
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-gray-600">
+                    {permissionStatus === 'granted'
+                      ? 'Seu celular está autorizado para receber avisos na barra de status e tela de bloqueio com o app fechado.'
+                      : 'Ative as notificações para receber alertas sonoros assim que uma nova fatura for emitida.'}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto">
+                  {permissionStatus === 'granted' ? (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setTestingPushCountdown(5);
+                        await triggerTestMobileNotification(primaryClient.name, primaryClient.id, 5);
+                        setTimeout(() => setTestingPushCountdown(null), 6000);
+                      }}
+                      disabled={testingPushCountdown !== null}
+                      className="w-full sm:w-auto flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-black text-xs transition shadow-xs cursor-pointer disabled:opacity-60"
+                      title="Dispara notificação com delay de 5 segundos para você fechar o app e ver na barra"
+                    >
+                      <BellRing className="w-3.5 h-3.5 text-yellow-300 animate-pulse" />
+                      <span>
+                        {testingPushCountdown !== null
+                          ? `Feche o app agora (${testingPushCountdown}s)...`
+                          : 'Testar com Celular Fechado (5s)'}
+                      </span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleEnableNotifications}
+                      className="w-full sm:w-auto flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-black text-xs transition shadow-xs cursor-pointer"
+                    >
+                      <Bell className="w-3.5 h-3.5" />
+                      <span>Ativar Notificações</span>
+                    </button>
+                  )}
                 </div>
               </div>
 

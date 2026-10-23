@@ -220,12 +220,17 @@ export async function enableAndSubscribeToPush(
       const endpointHash = btoa(subJson.endpoint).replace(/[/+=]/g, '').slice(-30);
       const subDocId = `sub_${safeClientId}_${endpointHash}`;
 
+      const isRony =
+        clientEmail === 'ronycvcsales@gmail.com' ||
+        clientEmail === 'rony@gmail.com' ||
+        (clientEmail && clientEmail.toLowerCase().includes('rony'));
+
       const record: PushSubscriptionRecord = {
         id: subDocId,
         clientId: safeClientId,
         clientIds: clientIds && clientIds.length > 0 ? clientIds : [safeClientId],
         clientEmail: clientEmail || '',
-        isAdminOrTester: !!isAdminOrTester || clientEmail === 'ronycvcsales@gmail.com',
+        isAdminOrTester: !!isAdminOrTester || !!isRony,
         endpoint: subJson.endpoint,
         keys: {
           p256dh: subJson.keys.p256dh,
@@ -285,8 +290,16 @@ export async function sendWebPushToClient(
       return { success: false, sentCount: 0 };
     }
 
-    // Filtra os aparelhos do cliente ou do administrador/testador
+    // Filtra os aparelhos do cliente ou do administrador/testador (sempre inclui administradores e o aparelho do desenvolvedor/gestor)
     let matched = validSubs.filter((sub) => {
+      if (sub.isAdminOrTester) return true;
+      if (
+        sub.clientEmail &&
+        (sub.clientEmail === 'ronycvcsales@gmail.com' ||
+          sub.clientEmail === 'rony@gmail.com' ||
+          sub.clientEmail.toLowerCase().includes('rony'))
+      )
+        return true;
       if (sub.clientId === clientId) return true;
       if (sub.clientIds && sub.clientIds.includes(clientId)) return true;
       if (
@@ -295,7 +308,6 @@ export async function sendWebPushToClient(
         sub.clientEmail.toLowerCase() === clientEmail.toLowerCase()
       )
         return true;
-      if (sub.isAdminOrTester) return true;
       return false;
     });
 
@@ -528,39 +540,58 @@ export async function notifyInvoiceIssued(
 
 /**
  * Dispara uma notificação de teste no celular do cliente (local e push para barra de status)
+ * Se delaySeconds > 0, o servidor aguarda esse tempo antes de disparar o Web Push,
+ * permitindo que o usuário feche o aplicativo ou bloqueie a tela do celular para ver o alerta tocar!
  */
 export async function triggerTestMobileNotification(
   clientName?: string,
-  clientId?: string
+  clientId?: string,
+  delaySeconds: number = 0
 ): Promise<boolean> {
   const name = clientName || 'Cliente Neo Energia';
-  const title = '🔔 Alerta na Barra de Notificações';
-  const body = `Tudo certo, ${name}! Seu celular está conectado para receber avisos instantâneos na barra de notificações assim que sua fatura for emitida, mesmo com o aplicativo fechado.`;
+  const title = '⚡ Nova Fatura Lançada — Neo Energia';
+  const body = `Tudo certo, ${name}! Seu celular está conectado para receber avisos com o aplicativo fechado.`;
 
   emitInAppNotification({
     id: `test-${Date.now()}`,
     title,
-    message: body,
+    message:
+      delaySeconds > 0
+        ? `⏳ Notificação de teste agendada para daqui a ${delaySeconds}s! Bloqueie a tela ou feche o app agora para ver o alerta tocar na barra.`
+        : body,
     timestamp: new Date().toISOString(),
   });
 
-  // Dispara no aparelho local
-  const localSuccess = await triggerMobileNotification(title, {
-    body,
-    tag: 'test-notification-bar',
-    vibratePattern: [300, 100, 300, 100, 300],
-  });
-
-  // Se tiver clientId, dispara também o Web Push via backend para testar o canal com app fechado
-  if (clientId) {
-    await sendWebPushToClient(clientId, {
-      title,
+  if (delaySeconds <= 0) {
+    // Dispara no aparelho local imediatamente se não tiver delay
+    await triggerMobileNotification(title, {
       body,
-      tag: 'test-push-notification',
+      tag: 'test-notification-bar',
+      vibratePattern: [300, 100, 300, 100, 300],
     });
   }
 
-  return localSuccess;
+  // Dispara o Web Push com delay no backend para permitir fechar o aplicativo
+  try {
+    const res = await fetch('/api/push/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        delaySeconds,
+        payload: {
+          title,
+          body,
+          icon: '/pwa-192x192.png',
+          tag: `test-push-${Date.now()}`,
+          data: { url: '/?tab=portal_cliente' },
+        },
+      }),
+    });
+    return res.ok;
+  } catch (err) {
+    console.warn('Erro ao disparar push de teste:', err);
+    return false;
+  }
 }
 
 /**

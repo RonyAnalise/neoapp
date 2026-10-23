@@ -45,14 +45,37 @@ app.get('/api/push/vapid-public-key', (_req: Request, res: Response) => {
 // Mesmo com o navegador ou app fechado, o FCM (Android) ou APNs (Apple) entrega na barra de notificações
 app.post('/api/push/send', async (req: Request, res: Response) => {
   try {
-    const { subscriptions, payload } = req.body;
+    let { subscriptions, payload, delaySeconds } = req.body;
+
+    // Se nenhuma assinatura foi enviada no payload, busca diretamente do Firestore
+    if (!subscriptions || !Array.isArray(subscriptions) || subscriptions.length === 0) {
+      try {
+        const { initializeApp, getApps } = await import('firebase/app');
+        const { getFirestore, collection, getDocs } = await import('firebase/firestore');
+        const fs = await import('fs');
+        const cfgPath = path.join(__dirname, 'firebase-applet-config.json');
+        if (fs.existsSync(cfgPath)) {
+          const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf-8'));
+          const app = getApps().length === 0 ? initializeApp(cfg) : getApps()[0];
+          const db = getFirestore(app, cfg.firestoreDatabaseId);
+          const snap = await getDocs(collection(db, 'push_subscriptions'));
+          subscriptions = snap.docs
+            .map((d) => d.data())
+            .filter((s: any) => s.endpoint && s.keys?.p256dh && s.keys?.auth);
+        }
+      } catch (errDb) {
+        console.warn('[WebPush] Falha ao carregar assinaturas automáticas do Firestore:', errDb);
+      }
+    }
 
     if (!subscriptions || !Array.isArray(subscriptions) || subscriptions.length === 0) {
       console.log('[WebPush] Requisição recebida sem assinaturas cadastradas');
       return res.status(400).json({ error: 'Nenhuma assinatura informada para push' });
     }
 
-    console.log(`[WebPush] Disparando notificação para ${subscriptions.length} dispositivo(s)... Título: "${payload?.title}"`);
+    console.log(
+      `[WebPush] Preparando envio para ${subscriptions.length} dispositivo(s)... Título: "${payload?.title}" (Delay: ${delaySeconds || 0}s)`
+    );
 
     const notificationPayload = JSON.stringify({
       title: payload?.title || '⚡ Nova Fatura Lançada — Neo Energia',
@@ -63,35 +86,76 @@ app.post('/api/push/send', async (req: Request, res: Response) => {
       data: payload?.data || { url: '/?tab=portal_cliente' },
     });
 
-    const results = await Promise.allSettled(
-      subscriptions.map(async (sub) => {
-        try {
-          const res = await webpush.sendNotification(
-            {
-              endpoint: sub.endpoint,
-              keys: sub.keys,
-            },
-            notificationPayload,
-            {
-              TTL: 60 * 60 * 24 * 7, // 7 dias de retenção
-              urgency: 'high',
+    const dispatch = async () => {
+      const results = await Promise.allSettled(
+        subscriptions.map(async (sub: any) => {
+          try {
+            const res = await webpush.sendNotification(
+              {
+                endpoint: sub.endpoint,
+                keys: sub.keys,
+              },
+              notificationPayload,
+              {
+                TTL: 60 * 60 * 24 * 7, // 7 dias de retenção
+                urgency: 'high',
+              }
+            );
+            console.log(
+              `[WebPush] Entregue com sucesso! Status: ${res.statusCode} | Endpoint: ${sub.endpoint.slice(0, 45)}...`
+            );
+            return res;
+          } catch (err: unknown) {
+            const status = (err as { statusCode?: number }).statusCode;
+            console.warn(
+              `[WebPush] Falha ao entregar para ${sub.endpoint.slice(0, 45)}... (Status: ${status})`,
+              err
+            );
+            // Se o token expirou (410) ou não existe (404), remove do Firestore
+            if (status === 410 || status === 404) {
+              try {
+                const { getApps } = await import('firebase/app');
+                const { getFirestore, collection, getDocs, deleteDoc, query, where } = await import(
+                  'firebase/firestore'
+                );
+                if (getApps().length > 0) {
+                  const db = getFirestore(getApps()[0]);
+                  const q = query(collection(db, 'push_subscriptions'), where('endpoint', '==', sub.endpoint));
+                  const qSnap = await getDocs(q);
+                  for (const d of qSnap.docs) {
+                    await deleteDoc(d.ref).catch(() => {});
+                  }
+                }
+              } catch {}
             }
-          );
-          console.log(`[WebPush] Entregue com sucesso! Status: ${res.statusCode} | Endpoint: ${sub.endpoint.slice(0, 45)}...`);
-          return res;
-        } catch (err: unknown) {
-          const status = (err as { statusCode?: number }).statusCode;
-          console.warn(`[WebPush] Falha ao entregar para ${sub.endpoint.slice(0, 45)}... (Status: ${status})`, err);
-          throw err;
-        }
-      })
-    );
+            throw err;
+          }
+        })
+      );
 
-    const sentCount = results.filter((r) => r.status === 'fulfilled').length;
-    const failedCount = results.filter((r) => r.status === 'rejected').length;
+      const sentCount = results.filter((r) => r.status === 'fulfilled').length;
+      const failedCount = results.filter((r) => r.status === 'rejected').length;
+      console.log(
+        `[WebPush Resumo] Enviados: ${sentCount} | Falhas: ${failedCount} | Total: ${subscriptions.length}`
+      );
+      return { sentCount, failedCount };
+    };
 
-    console.log(`[WebPush Resumo] Enviados: ${sentCount} | Falhas: ${failedCount} | Total: ${subscriptions.length}`);
+    const delay = Number(delaySeconds) || 0;
+    if (delay > 0) {
+      setTimeout(() => {
+        dispatch().catch((e) => console.error('[WebPush Delayed] Erro no disparo:', e));
+      }, delay * 1000);
 
+      return res.json({
+        success: true,
+        scheduled: true,
+        delaySeconds: delay,
+        total: subscriptions.length,
+      });
+    }
+
+    const { sentCount, failedCount } = await dispatch();
     return res.json({
       success: true,
       sentCount,
