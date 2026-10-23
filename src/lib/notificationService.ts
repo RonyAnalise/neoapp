@@ -1,7 +1,12 @@
-import { Fatura, Cliente } from '../types';
+import { Fatura, Cliente, PushSubscriptionRecord } from '../types';
 import { formatCurrency, formatReferencePeriod } from './calculations';
+import { collection, doc, setDoc, getDocs, query, where } from 'firebase/firestore';
+import { db } from './firebase';
 
 export type NotificationPermissionStatus = 'granted' | 'denied' | 'default' | 'unsupported';
+
+export const VAPID_PUBLIC_KEY =
+  'BBNqn60incWjXa7kC5UJMpQW-T-XiyqevrgIeSXjhEkColAH0WaWouV5Dk84v9yIJMa0Z5hDqYbCj07yOwGUQTw';
 
 // Event emitter listener type for in-app toasts
 type NotificationListener = (payload: InAppNotificationPayload) => void;
@@ -38,42 +43,264 @@ export function emitInAppNotification(payload: InAppNotificationPayload) {
 }
 
 /**
- * Verifica se a API de Notificações é suportada pelo navegador do celular/desktop
+ * Converte chave VAPID Base64 URL Safe para Uint8Array exigido pelo pushManager.subscribe
+ */
+export function urlBase64ToUint8Array(base64String: string): Uint8Array {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
+
+/**
+ * Identifica se o dispositivo é iOS (iPhone, iPad)
+ */
+export function isIOSDevice(): boolean {
+  if (typeof window === 'undefined') return false;
+  const userAgent = window.navigator.userAgent.toLowerCase();
+  return /iphone|ipad|ipod/.test(userAgent);
+}
+
+/**
+ * Identifica se o dispositivo é Android
+ */
+export function isAndroidDevice(): boolean {
+  if (typeof window === 'undefined') return false;
+  const userAgent = window.navigator.userAgent.toLowerCase();
+  return /android/.test(userAgent);
+}
+
+/**
+ * Identifica se o aplicativo está instalado na tela de início (PWA standalone)
+ * Crucial para iOS: No iOS 16.4+, notificações Web Push com app fechado exigem que o app esteja adicionado à Tela de Início.
+ */
+export function isStandalonePWA(): boolean {
+  if (typeof window === 'undefined') return false;
+  const isStandalone =
+    window.matchMedia('(display-mode: standalone)').matches ||
+    (window.navigator as unknown as { standalone?: boolean }).standalone === true;
+  return isStandalone;
+}
+
+/**
+ * Detecta plataforma do dispositivo
+ */
+export function getDevicePlatform(): 'android' | 'ios' | 'desktop' {
+  if (isAndroidDevice()) return 'android';
+  if (isIOSDevice()) return 'ios';
+  return 'desktop';
+}
+
+/**
+ * Verifica se a API de Notificações e Service Worker são suportados pelo navegador
  */
 export function isNotificationSupported(): boolean {
-  return typeof window !== 'undefined' && 'Notification' in window;
+  return (
+    typeof window !== 'undefined' &&
+    'Notification' in window &&
+    'serviceWorker' in navigator &&
+    'PushManager' in window
+  );
 }
 
 /**
  * Obtém o status atual de permissão de notificação
  */
 export function getNotificationPermission(): NotificationPermissionStatus {
-  if (!isNotificationSupported()) {
+  if (typeof window === 'undefined' || !('Notification' in window)) {
     return 'unsupported';
   }
   return Notification.permission as NotificationPermissionStatus;
 }
 
 /**
- * Solicita autorização ao usuário para enviar notificações no celular/navegador
+ * Solicita permissão do navegador para notificações
  */
 export async function requestNotificationPermission(): Promise<boolean> {
-  if (!isNotificationSupported()) {
+  if (typeof window === 'undefined' || !('Notification' in window)) {
     return false;
   }
   try {
     const permission = await Notification.requestPermission();
-    if (permission === 'granted') {
-      // Salva preferência localmente
-      try {
-        localStorage.setItem('neo_client_notifications_enabled', 'true');
-      } catch {}
-      return true;
-    }
+    return permission === 'granted';
+  } catch {
     return false;
+  }
+}
+
+/**
+ * Registra o Service Worker dedicado para Push e obtém a subscription
+ */
+export async function registerPushServiceWorker(): Promise<ServiceWorkerRegistration | null> {
+  if (typeof window === 'undefined' || !('serviceWorker' in navigator)) {
+    return null;
+  }
+  try {
+    // Registra o Service Worker dedicado de push
+    const reg = await navigator.serviceWorker.register('/push-sw.js', { scope: '/' });
+    await navigator.serviceWorker.ready;
+    return reg;
   } catch (err) {
-    console.error('Erro ao solicitar permissão de notificações:', err);
-    return false;
+    console.warn('Falha ao registrar push-sw.js, tentando registration existente:', err);
+    try {
+      return await navigator.serviceWorker.ready;
+    } catch {
+      return null;
+    }
+  }
+}
+
+/**
+ * Solicita permissão e cadastra a assinatura Web Push no navegador do celular e no Firestore
+ * Permite que o celular receba avisos na barra de status mesmo com o APP FECHADO
+ */
+export async function enableAndSubscribeToPush(
+  clientId: string,
+  clientEmail?: string
+): Promise<{ success: boolean; error?: string; subscription?: PushSubscription }> {
+  if (!isNotificationSupported()) {
+    return {
+      success: false,
+      error: 'Notificações push não são suportadas neste navegador.',
+    };
+  }
+
+  // Regra iOS: no iPhone, notificações em segundo plano exigem instalação na Tela de Início
+  if (isIOSDevice() && !isStandalonePWA()) {
+    // Retorna indicação para instruir o usuário a adicionar à tela de início
+    console.info('No iOS, para notificações com app fechado adicione à Tela de Início');
+  }
+
+  try {
+    // 1. Solicita permissão do usuário
+    const permission = await Notification.requestPermission();
+    if (permission !== 'granted') {
+      return {
+        success: false,
+        error: 'Permissão de notificação negada no navegador.',
+      };
+    }
+
+    // 2. Garante o Service Worker ativo
+    const reg = await registerPushServiceWorker();
+    if (!reg || !reg.pushManager) {
+      return {
+        success: false,
+        error: 'Service Worker ou PushManager não disponível.',
+      };
+    }
+
+    // 3. Obtém ou cria a assinatura Push com a chave pública VAPID
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY) as BufferSource,
+      });
+    }
+
+    // 4. Salva a assinatura no Firestore para envio em segundo plano pelo servidor
+    const subJson = sub.toJSON();
+    if (subJson.endpoint && subJson.keys?.p256dh && subJson.keys?.auth) {
+      // Cria ID estável baseado no endpoint
+      const endpointHash = btoa(subJson.endpoint).replace(/[/+=]/g, '').slice(-30);
+      const subDocId = `sub_${clientId}_${endpointHash}`;
+
+      const record: PushSubscriptionRecord = {
+        id: subDocId,
+        clientId,
+        clientEmail: clientEmail || '',
+        endpoint: subJson.endpoint,
+        keys: {
+          p256dh: subJson.keys.p256dh,
+          auth: subJson.keys.auth,
+        },
+        platform: getDevicePlatform(),
+        userAgent: navigator.userAgent.slice(0, 200),
+        updatedAt: new Date().toISOString(),
+      };
+
+      await setDoc(doc(db, 'push_subscriptions', subDocId), record, { merge: true });
+    }
+
+    try {
+      localStorage.setItem('neo_client_notifications_enabled', 'true');
+    } catch {}
+
+    return { success: true, subscription: sub };
+  } catch (err) {
+    console.error('Erro ao subscrever Web Push:', err);
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+/**
+ * Envia notificação Web Push direta para os celulares cadastrados do cliente
+ * (Disparado pelo servidor para a barra de notificações do celular mesmo com o app fechado)
+ */
+export async function sendWebPushToClient(
+  clientId: string,
+  payload: {
+    title: string;
+    body: string;
+    faturaId?: string;
+    tag?: string;
+    data?: unknown;
+  }
+): Promise<{ success: boolean; sentCount: number }> {
+  try {
+    // 1. Busca no Firestore todas as assinaturas push vinculadas a este clientId
+    const q = query(collection(db, 'push_subscriptions'), where('clientId', '==', clientId));
+    const snap = await getDocs(q);
+
+    if (snap.empty) {
+      console.debug('Nenhum aparelho com push subscription registrado para o cliente', clientId);
+      return { success: false, sentCount: 0 };
+    }
+
+    const subscriptions = snap.docs.map((d) => {
+      const data = d.data() as PushSubscriptionRecord;
+      return {
+        endpoint: data.endpoint,
+        keys: data.keys,
+      };
+    });
+
+    // 2. Chama a rota da API no backend Express para enviar via web-push VAPID
+    const res = await fetch('/api/push/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        subscriptions,
+        payload: {
+          title: payload.title,
+          body: payload.body,
+          icon: '/pwa-192x192.png',
+          badge: '/icon.svg',
+          tag: payload.tag || `fatura-${payload.faturaId || Date.now()}`,
+          data: payload.data || {
+            url: `/?tab=portal_cliente&faturaId=${payload.faturaId || ''}`,
+          },
+        },
+      }),
+    });
+
+    if (!res.ok) {
+      throw new Error(`Servidor retornou erro HTTP ${res.status}`);
+    }
+
+    const result = await res.json();
+    return { success: true, sentCount: result.sentCount || 0 };
+  } catch (err) {
+    console.warn('Erro ao disparar Web Push via API:', err);
+    return { success: false, sentCount: 0 };
   }
 }
 
@@ -82,7 +309,9 @@ export async function requestNotificationPermission(): Promise<boolean> {
  */
 export function playNotificationSound() {
   try {
-    const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    const AudioContextClass =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     if (!AudioContextClass) return;
 
     const ctx = new AudioContextClass();
@@ -112,8 +341,7 @@ export function playNotificationSound() {
       osc.start(now + start);
       osc.stop(now + start + duration);
     });
-  } catch (e) {
-    // Web Audio pode ser bloqueado antes do primeiro clique do usuário
+  } catch {
     console.debug('Som de notificação suprimido por política do navegador');
   }
 }
@@ -126,7 +354,7 @@ export function vibrateDevice(pattern: number[] = [200, 100, 200, 100, 300]) {
     if (typeof window !== 'undefined' && 'vibrate' in navigator) {
       navigator.vibrate(pattern);
     }
-  } catch (e) {
+  } catch {
     console.debug('Vibração indisponível no dispositivo');
   }
 }
@@ -149,7 +377,7 @@ export async function triggerMobileNotification(
   playNotificationSound();
   vibrateDevice(options.vibratePattern);
 
-  if (!isNotificationSupported()) {
+  if (typeof window === 'undefined' || !('Notification' in window)) {
     return false;
   }
 
@@ -158,7 +386,7 @@ export async function triggerMobileNotification(
   }
 
   try {
-    // Tenta primeiro via Service Worker (necessário para PWAs e Android/iOS moderno)
+    // Tenta primeiro via Service Worker (necessário para persistência na barra do Android e iOS)
     if ('serviceWorker' in navigator) {
       const reg = await navigator.serviceWorker.getRegistration();
       if (reg && reg.showNotification) {
@@ -168,7 +396,8 @@ export async function triggerMobileNotification(
           badge: options.badge || '/icon.svg',
           tag: options.tag || 'neo-fatura-alert',
           data: options.data,
-          // Padrão de vibração para suporte Web Push
+          // requireInteraction: true garante que o aviso permaneça na barra até o usuário abrir
+          requireInteraction: true,
           vibrate: options.vibratePattern || [200, 100, 200, 100, 300],
         } as NotificationOptions);
         return true;
@@ -181,7 +410,8 @@ export async function triggerMobileNotification(
       icon: options.icon || '/pwa-192x192.png',
       tag: options.tag || 'neo-fatura-alert',
       data: options.data,
-    });
+      requireInteraction: true,
+    } as NotificationOptions);
     return true;
   } catch (err) {
     console.warn('Erro ao disparar notificação nativa:', err);
@@ -190,7 +420,10 @@ export async function triggerMobileNotification(
 }
 
 /**
- * Dispara a notificação completa de emissão de fatura para o cliente
+ * Dispara a notificação completa de emissão de fatura para o cliente:
+ * 1. Emite evento in-app no portal
+ * 2. Aciona notificação local se a tela estiver aberta
+ * 3. Envia Web Push para os celulares cadastrados (que toca e fica na barra mesmo com o app FECHADO!)
  */
 export async function notifyInvoiceIssued(
   fatura: Fatura,
@@ -203,11 +436,11 @@ export async function notifyInvoiceIssued(
   const hasBoleto = !!(fatura.boletoBase64 || fatura.boletoStoragePath);
 
   const title = '⚡ Nova Fatura Lançada — Neo Energia';
-  const body = `Olá ${clientName}! Sua fatura de ${period} no valor de ${totalStr} foi lançada. Economia de ${savingsStr} garantida! ${
-    hasBoleto ? 'Boleto bancário disponível para download.' : 'Fatura disponível para visualização.'
+  const body = `Olá ${clientName}! Sua fatura de ${period} no valor de ${totalStr} foi lançada. Economia de ${savingsStr} calculada! ${
+    hasBoleto ? 'Boleto disponível para download.' : 'Fatura pronta para visualização.'
   }`;
 
-  // 1. Emite alerta in-app (exibido na tela do portal em tempo real)
+  // 1. Emite alerta in-app na tela
   emitInAppNotification({
     id: `notif-${fatura.id}-${Date.now()}`,
     title,
@@ -220,25 +453,40 @@ export async function notifyInvoiceIssued(
     clientName,
   });
 
-  // 2. Dispara notificação nativa no celular (se permissão concedida)
+  // 2. Dispara notificação nativa com som e vibração (se permitido neste aparelho)
   await triggerMobileNotification(title, {
     body,
     tag: `fatura-${fatura.id}`,
     vibratePattern: [300, 150, 300, 150, 450],
     data: {
       faturaId: fatura.id,
-      url: window.location.origin,
+      url: `${typeof window !== 'undefined' ? window.location.origin : ''}/?tab=portal_cliente`,
+    },
+  });
+
+  // 3. Envia Web Push para entrega na barra do celular com o APP FECHADO
+  await sendWebPushToClient(fatura.clientId, {
+    title,
+    body,
+    faturaId: fatura.id,
+    tag: `fatura-${fatura.id}`,
+    data: {
+      faturaId: fatura.id,
+      url: `${typeof window !== 'undefined' ? window.location.origin : ''}/?tab=portal_cliente`,
     },
   });
 }
 
 /**
- * Dispara uma notificação de teste no celular do cliente
+ * Dispara uma notificação de teste no celular do cliente (local e push para barra de status)
  */
-export async function triggerTestMobileNotification(clientName?: string): Promise<boolean> {
+export async function triggerTestMobileNotification(
+  clientName?: string,
+  clientId?: string
+): Promise<boolean> {
   const name = clientName || 'Cliente Neo Energia';
-  const title = '🔔 Teste de Notificação no Celular';
-  const body = `Tudo pronto, ${name}! Seu celular está configurado para receber avisos instantâneos assim que suas faturas forem emitidas.`;
+  const title = '🔔 Alerta na Barra de Notificações';
+  const body = `Tudo certo, ${name}! Seu celular está conectado para receber avisos instantâneos na barra de notificações assim que sua fatura for emitida, mesmo com o aplicativo fechado.`;
 
   emitInAppNotification({
     id: `test-${Date.now()}`,
@@ -247,11 +495,23 @@ export async function triggerTestMobileNotification(clientName?: string): Promis
     timestamp: new Date().toISOString(),
   });
 
-  return triggerMobileNotification(title, {
+  // Dispara no aparelho local
+  const localSuccess = await triggerMobileNotification(title, {
     body,
-    tag: 'test-notification',
-    vibratePattern: [200, 100, 200, 100, 200],
+    tag: 'test-notification-bar',
+    vibratePattern: [300, 100, 300, 100, 300],
   });
+
+  // Se tiver clientId, dispara também o Web Push via backend para testar o canal com app fechado
+  if (clientId) {
+    await sendWebPushToClient(clientId, {
+      title,
+      body,
+      tag: 'test-push-notification',
+    });
+  }
+
+  return localSuccess;
 }
 
 /**
@@ -265,18 +525,17 @@ export function getWhatsAppNotificationUrl(
   const rawPhone = client.whatsapp || client.phone;
   if (!rawPhone) return null;
 
-  // Limpa apenas dígitos
   const digits = rawPhone.replace(/\D/g, '');
   if (!digits) return null;
 
-  // Garante DDI 55 do Brasil se faltar
   const fullPhone = digits.startsWith('55') && digits.length >= 12 ? digits : `55${digits}`;
 
   const period = formatReferencePeriod(fatura.referenceMonth, fatura.referenceYear);
   const total = formatCurrency(fatura.totalToPay);
   const savings = formatCurrency(fatura.savingsAmount);
   const hasBoleto = !!(fatura.boletoBase64 || fatura.boletoStoragePath);
-  const portalUrl = customPortalUrl || (typeof window !== 'undefined' ? window.location.origin : '');
+  const portalUrl =
+    customPortalUrl || (typeof window !== 'undefined' ? window.location.origin : '');
 
   const text = `⚡ *Neo Energia — Nova Fatura Disponível* ⚡
 

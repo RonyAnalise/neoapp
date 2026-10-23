@@ -232,6 +232,28 @@
         "createdAt": { "type": "string" }
       },
       "required": ["clientId", "faturaId", "title", "message", "createdAt"]
+    },
+    "PushSubscriptionEntity": {
+      "title": "PushSubscriptionEntity",
+      "description": "Assinaturas de notificações push Web Push para entrega no celular com app fechado.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "clientId": { "type": "string" },
+        "clientEmail": { "type": "string" },
+        "endpoint": { "type": "string" },
+        "keys": {
+          "type": "object",
+          "properties": {
+            "p256dh": { "type": "string" },
+            "auth": { "type": "string" }
+          }
+        },
+        "platform": { "type": "string" },
+        "userAgent": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["clientId", "endpoint", "keys", "updatedAt"]
     }
   },
   "firestore": {
@@ -282,6 +304,10 @@
     "/notificacoes/{notificacaoId}": {
       "schema": { "$ref": "#/entities/Notificacao" },
       "description": "Notificações enviadas aos clientes para alertas no celular."
+    },
+    "/push_subscriptions/{subId}": {
+      "schema": { "$ref": "#/entities/PushSubscriptionEntity" },
+      "description": "Dispositivos cadastrados para recebimento de notificações na barra do celular."
     }
   }
 }

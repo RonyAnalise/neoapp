@@ -48,6 +48,7 @@ export default defineConfig(() => {
           type: 'module',
         },
         workbox: {
+          importScripts: ['/push-sw.js'],
           maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
         },
       }),

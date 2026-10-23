@@ -234,3 +234,18 @@ export interface NotificacaoCliente {
   createdAt: string;
 }
 
+export interface PushSubscriptionRecord {
+  id: string;
+  clientId: string;
+  clientEmail?: string;
+  endpoint: string;
+  keys: {
+    p256dh: string;
+    auth: string;
+  };
+  platform: 'android' | 'ios' | 'desktop';
+  userAgent?: string;
+  updatedAt: string;
+}
+
+

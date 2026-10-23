@@ -31,6 +31,9 @@ import {
   Smartphone,
   MessageCircle,
   X,
+  Share,
+  PlusSquare,
+  Info,
 } from 'lucide-react';
 import { Cliente, EmpresaConfig, Fatura, Leitura } from '../types';
 import {
@@ -50,6 +53,10 @@ import {
   getWhatsAppNotificationUrl,
   InAppNotificationPayload,
   NotificationPermissionStatus,
+  enableAndSubscribeToPush,
+  isIOSDevice,
+  isAndroidDevice,
+  isStandalonePWA,
 } from '../lib/notificationService';
 import { useAuth } from '../hooks/useAuth';
 
@@ -84,6 +91,7 @@ export const PortalClienteView: React.FC<PortalClienteViewProps> = ({
   );
   const [activeToastNotification, setActiveToastNotification] = useState<InAppNotificationPayload | null>(null);
   const [testNotificationFeedback, setTestNotificationFeedback] = useState<string | null>(null);
+  const [showIOSPwaGuide, setShowIOSPwaGuide] = useState(false);
 
   // 1. Identifica todos os medidores/clientes vinculados ao mesmo e-mail ou CPF
   const userEmail = (userProfile?.email || currentUser?.email || '').trim().toLowerCase();
@@ -299,30 +307,51 @@ export const PortalClienteView: React.FC<PortalClienteViewProps> = ({
     }
   }, [faturas, activeClientIds, clientes, primaryClient]);
 
-  // 3. Ativação e teste de notificações no celular
+  // Auto-conecta o serviço Push se a permissão já estiver concedida
+  useEffect(() => {
+    if (
+      typeof window !== 'undefined' &&
+      'Notification' in window &&
+      Notification.permission === 'granted' &&
+      primaryClient.id &&
+      primaryClient.id !== 'exemplo'
+    ) {
+      enableAndSubscribeToPush(primaryClient.id, primaryClient.email).catch(() => {});
+    }
+  }, [primaryClient.id, primaryClient.email]);
+
+  // 3. Ativação e teste de notificações push no celular (mesmo com app fechado)
   const handleEnableNotifications = async () => {
-    setTestNotificationFeedback('Solicitando autorização do navegador...');
-    const granted = await requestNotificationPermission();
+    // No iOS (iPhone/iPad), o sistema Apple exige que o PWA esteja adicionado à Tela de Início para push com app fechado
+    if (isIOSDevice() && !isStandalonePWA()) {
+      setShowIOSPwaGuide(true);
+      return;
+    }
+
+    setTestNotificationFeedback('Conectando serviço de notificações push no celular...');
+    const result = await enableAndSubscribeToPush(primaryClient.id, primaryClient.email);
     const updated = getNotificationPermission();
     setPermissionStatus(updated);
 
-    if (granted) {
-      setTestNotificationFeedback('✓ Notificações no celular ativadas com sucesso!');
-      await triggerTestMobileNotification(primaryClient.name);
-      setTimeout(() => setTestNotificationFeedback(null), 5000);
+    if (result.success) {
+      setTestNotificationFeedback(
+        '✓ Notificações no celular ativadas! O aviso ficará na barra de notificações mesmo com o app fechado.'
+      );
+      await triggerTestMobileNotification(primaryClient.name, primaryClient.id);
+      setTimeout(() => setTestNotificationFeedback(null), 6000);
     } else {
       setTestNotificationFeedback(
-        'Permissão de notificação não concedida. Verifique se o navegador bloqueou as permissões.'
+        result.error || 'Permissão de notificação não concedida. Verifique se o navegador bloqueou as permissões.'
       );
       setTimeout(() => setTestNotificationFeedback(null), 6000);
     }
   };
 
   const handleTestNotification = async () => {
-    setTestNotificationFeedback('Disparando alerta sonoro e vibração no celular...');
-    await triggerTestMobileNotification(primaryClient.name);
-    setTestNotificationFeedback('✓ Alerta disparado no seu celular!');
-    setTimeout(() => setTestNotificationFeedback(null), 4000);
+    setTestNotificationFeedback('Disparando alerta para a barra de notificações do seu celular...');
+    await triggerTestMobileNotification(primaryClient.name, primaryClient.id);
+    setTestNotificationFeedback('✓ Alerta disparado! O aviso fica fixado na barra do celular até ser aberto.');
+    setTimeout(() => setTestNotificationFeedback(null), 5000);
   };
 
   return (
@@ -581,11 +610,11 @@ export const PortalClienteView: React.FC<PortalClienteViewProps> = ({
         {/* 1. ABA DE FATURAS E BOLETOS */}
         {activeTab === 'faturas' && (
           <div className="space-y-6">
-            {/* Card de Notificações no Celular */}
+            {/* Card de Notificações no Celular com App Fechado (Android e iOS) */}
             <div className="bg-white rounded-2xl border border-emerald-200/90 p-4 sm:p-5 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
               <div className="flex items-start gap-3.5">
                 <div
-                  className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 shadow-xs ${
+                  className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 shadow-xs ${
                     permissionStatus === 'granted'
                       ? 'bg-emerald-100 text-emerald-800'
                       : 'bg-amber-100 text-amber-800'
@@ -594,26 +623,36 @@ export const PortalClienteView: React.FC<PortalClienteViewProps> = ({
                   <BellRing className={`w-6 h-6 ${permissionStatus === 'granted' ? 'text-emerald-700' : 'text-amber-600 animate-pulse'}`} />
                 </div>
                 <div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <h4 className="text-sm font-black text-gray-900">
-                      Notificações no Celular ao Lançar Faturas
+                      Notificações no Celular (Android & iOS)
                     </h4>
                     {permissionStatus === 'granted' ? (
                       <span className="bg-emerald-100 text-emerald-800 text-[10px] font-black px-2.5 py-0.5 rounded-full border border-emerald-300 flex items-center gap-1">
                         <Check className="w-3 h-3 text-emerald-700" />
-                        ATIVADO
+                        ATIVADO NA BARRA DO CELULAR
                       </span>
                     ) : (
                       <span className="bg-amber-100 text-amber-900 text-[10px] font-black px-2 py-0.5 rounded-full border border-amber-300">
-                        DISPONÍVEL
+                        APP FECHADO DISPONÍVEL
                       </span>
                     )}
                   </div>
                   <p className="text-xs text-gray-600 mt-1 max-w-2xl">
                     {permissionStatus === 'granted'
-                      ? 'Seu smartphone vibrará e tocará um aviso sempre que a empresa emitir uma fatura ou disponibilizar boleto para os seus medidores.'
-                      : 'Ative para ser alertado no seu smartphone no exato instante em que a empresa lançar uma nova fatura ou boleto para seu consumo.'}
+                      ? '✓ O alerta fica fixado na barra de notificações do celular (status bar / tela de bloqueio) mesmo com o aplicativo fechado até você tocar nele.'
+                      : 'Receba o aviso sonoro e vibratório na barra de notificações do seu celular assim que uma nova fatura for emitida, mesmo se o aplicativo estiver totalmente fechado.'}
                   </p>
+                  <div className="flex flex-wrap items-center gap-2 mt-2 text-[11px] font-semibold text-gray-500">
+                    <span className="flex items-center gap-1 bg-gray-100 px-2 py-0.5 rounded-lg text-gray-700">
+                      <span>🤖 Android:</span>
+                      <strong className="text-gray-900">Chrome, Edge ou PWA</strong>
+                    </span>
+                    <span className="flex items-center gap-1 bg-gray-100 px-2 py-0.5 rounded-lg text-gray-700">
+                      <span>🍎 iPhone (iOS):</span>
+                      <strong className="text-gray-900">Tela de Início (iOS 16.4+)</strong>
+                    </span>
+                  </div>
                 </div>
               </div>
 
@@ -623,10 +662,10 @@ export const PortalClienteView: React.FC<PortalClienteViewProps> = ({
                     type="button"
                     onClick={handleTestNotification}
                     className="flex-1 md:flex-initial flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-black text-xs transition cursor-pointer shadow-xs"
-                    title="Disparar aviso de teste no seu celular com som e vibração"
+                    title="Disparar aviso de teste para a barra de notificações do celular"
                   >
                     <Smartphone className="w-4 h-4 text-emerald-200" />
-                    <span>Testar Alerta no Celular</span>
+                    <span>🔔 Testar Alerta na Barra</span>
                   </button>
                 ) : (
                   <button
@@ -636,7 +675,19 @@ export const PortalClienteView: React.FC<PortalClienteViewProps> = ({
                     title="Autorizar notificações de faturas no smartphone"
                   >
                     <Bell className="w-4 h-4 text-yellow-300" />
-                    <span>Ativar Notificações no Celular</span>
+                    <span>Ativar na Barra do Celular</span>
+                  </button>
+                )}
+
+                {isIOSDevice() && !isStandalonePWA() && (
+                  <button
+                    type="button"
+                    onClick={() => setShowIOSPwaGuide(true)}
+                    className="px-3 py-2 rounded-xl border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 font-bold text-xs transition cursor-pointer"
+                    title="Ver instruções para iPhone"
+                  >
+                    <Info className="w-4 h-4 text-emerald-700" />
+                    <span className="hidden sm:inline">Guia iPhone</span>
                   </button>
                 )}
               </div>
@@ -1296,6 +1347,68 @@ export const PortalClienteView: React.FC<PortalClienteViewProps> = ({
           </p>
         </div>
       </footer>
+
+      {/* Modal Guia iPhone para Notificações com App Fechado */}
+      {showIOSPwaGuide && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 p-4 backdrop-blur-xs flex items-center justify-center animate-in fade-in">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">🍎</span>
+                <h3 className="font-black text-gray-900 text-sm sm:text-base">
+                  Notificações na Barra no iPhone (iOS)
+                </h3>
+              </div>
+              <button
+                onClick={() => setShowIOSPwaGuide(false)}
+                className="p-1 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-gray-600 leading-relaxed">
+              No iPhone (iOS 16.4+), para receber notificações com som e vibração na tela de bloqueio e na barra do celular <strong>mesmo com o aplicativo fechado</strong>, o sistema da Apple exige adicioná-lo à Tela de Início:
+            </p>
+
+            <div className="space-y-3 bg-gray-50 rounded-xl p-3.5 border border-gray-200 text-xs">
+              <div className="flex items-start gap-2.5">
+                <div className="w-6 h-6 rounded-lg bg-emerald-100 text-emerald-800 font-black flex items-center justify-center shrink-0">
+                  1
+                </div>
+                <div className="text-gray-700">
+                  Toque no botão <strong className="text-gray-900">Compartilhar</strong> (<Share className="w-3.5 h-3.5 inline mx-0.5 text-blue-600" />) na barra inferior do Safari.
+                </div>
+              </div>
+
+              <div className="flex items-start gap-2.5">
+                <div className="w-6 h-6 rounded-lg bg-emerald-100 text-emerald-800 font-black flex items-center justify-center shrink-0">
+                  2
+                </div>
+                <div className="text-gray-700">
+                  Role para baixo e selecione <strong className="text-gray-900">Adicionar à Tela de Início</strong> (<PlusSquare className="w-3.5 h-3.5 inline mx-0.5 text-gray-700" />).
+                </div>
+              </div>
+
+              <div className="flex items-start gap-2.5">
+                <div className="w-6 h-6 rounded-lg bg-emerald-100 text-emerald-800 font-black flex items-center justify-center shrink-0">
+                  3
+                </div>
+                <div className="text-gray-700">
+                  Abra o ícone criado na Tela de Início e toque em <strong className="text-emerald-700">Ativar Notificações</strong>.
+                </div>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setShowIOSPwaGuide(false)}
+              className="w-full py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs shadow-xs transition cursor-pointer"
+            >
+              Entendi
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
