@@ -506,41 +506,24 @@ function MainApp() {
     });
   };
 
-  // Limpeza de testes: faturas de outubro foram testes e não devem existir no sistema
-  const cleanedInvoicesRef = useRef(false);
-  useEffect(() => {
-    if (!currentUser || cleanedInvoicesRef.current || faturas.length === 0) return;
+  const handleUpdateInvoice = async (faturaId: string, updatedData: Partial<Fatura>) => {
+    const prevFat = faturas.find((f) => f.id === faturaId);
+    await updateDoc(doc(db, 'faturas', faturaId), {
+      ...updatedData,
+      updatedAt: new Date().toISOString(),
+    });
 
-    const cleanupInvoices = async () => {
-      try {
-        // Faturas a serem excluídas: apenas as de outubro (mês 10), pois foram apenas testes
-        const invoicesToDelete = faturas.filter((f) => f.referenceMonth === 10);
-
-        if (invoicesToDelete.length > 0) {
-          cleanedInvoicesRef.current = true;
-          for (const fat of invoicesToDelete) {
-            if (fat.boletoStoragePath) {
-              const fileRef = ref(storage, fat.boletoStoragePath);
-              await deleteObject(fileRef).catch(() => {});
-            }
-            await deleteDoc(doc(db, 'faturas', fat.id)).catch(() => {});
-          }
-        } else {
-          cleanedInvoicesRef.current = true;
-        }
-
-        // Também limpa leituras de teste de outubro (mês 10) para o medidor permanecer na leitura de setembro
-        const testReadings = leituras.filter((l) => l.referenceMonth === 10);
-        for (const l of testReadings) {
-          await deleteDoc(doc(db, 'leituras', l.id)).catch(() => {});
-        }
-      } catch (err) {
-        console.warn('Erro ao limpar faturas de teste:', err);
-      }
-    };
-
-    cleanupInvoices();
-  }, [currentUser, faturas, leituras]);
+    await logAuditEvent({
+      operationType: 'edit_invoice',
+      collectionName: 'faturas',
+      relatedDocument: prevFat?.invoiceNumber || faturaId,
+      user: userProfile?.name || 'Operador',
+      userEmail: userProfile?.email || '',
+      previousData: prevFat || undefined,
+      newData: updatedData,
+      justification: `Edição dos dados da fatura #${prevFat?.invoiceNumber || faturaId}`,
+    });
+  };
 
   // Confirm payment with mandatory automatic deletion of boleto PDF from Firebase Storage
   const handleConfirmPayment = async (faturaId: string, amount: number) => {
@@ -971,6 +954,7 @@ function MainApp() {
               tariffs={tariffs}
               prefillClientId={prefillClientId}
               onIssueInvoice={handleIssueInvoice}
+              onUpdateInvoice={handleUpdateInvoice}
               onConfirmPayment={handleConfirmPayment}
               onCancelInvoice={handleCancelInvoice}
               onDeleteInvoice={handleDeleteInvoice}

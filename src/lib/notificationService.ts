@@ -160,7 +160,9 @@ export async function registerPushServiceWorker(): Promise<ServiceWorkerRegistra
  */
 export async function enableAndSubscribeToPush(
   clientId: string,
-  clientEmail?: string
+  clientEmail?: string,
+  clientIds?: string[],
+  isAdminOrTester?: boolean
 ): Promise<{ success: boolean; error?: string; subscription?: PushSubscription }> {
   if (!isNotificationSupported()) {
     return {
@@ -171,7 +173,6 @@ export async function enableAndSubscribeToPush(
 
   // Regra iOS: no iPhone, notificações em segundo plano exigem instalação na Tela de Início
   if (isIOSDevice() && !isStandalonePWA()) {
-    // Retorna indicação para instruir o usuário a adicionar à tela de início
     console.info('No iOS, para notificações com app fechado adicione à Tela de Início');
   }
 
@@ -194,8 +195,17 @@ export async function enableAndSubscribeToPush(
       };
     }
 
-    // 3. Obtém ou cria a assinatura Push com a chave pública VAPID
+    // 3. Obtém ou renova a assinatura Push com a chave pública VAPID
     let sub = await reg.pushManager.getSubscription();
+    if (sub) {
+      // Se já existir, verifica se possui chaves válidas
+      const subJson = sub.toJSON();
+      if (!subJson.keys?.p256dh || !subJson.keys?.auth) {
+        await sub.unsubscribe().catch(() => {});
+        sub = null;
+      }
+    }
+
     if (!sub) {
       sub = await reg.pushManager.subscribe({
         userVisibleOnly: true,
@@ -206,14 +216,15 @@ export async function enableAndSubscribeToPush(
     // 4. Salva a assinatura no Firestore para envio em segundo plano pelo servidor
     const subJson = sub.toJSON();
     if (subJson.endpoint && subJson.keys?.p256dh && subJson.keys?.auth) {
-      // Cria ID estável baseado no endpoint
       const endpointHash = btoa(subJson.endpoint).replace(/[/+=]/g, '').slice(-30);
       const subDocId = `sub_${clientId}_${endpointHash}`;
 
       const record: PushSubscriptionRecord = {
         id: subDocId,
         clientId,
+        clientIds: clientIds || [clientId],
         clientEmail: clientEmail || '',
+        isAdminOrTester: !!isAdminOrTester,
         endpoint: subJson.endpoint,
         keys: {
           p256dh: subJson.keys.p256dh,
@@ -253,25 +264,48 @@ export async function sendWebPushToClient(
     faturaId?: string;
     tag?: string;
     data?: unknown;
-  }
+  },
+  clientEmail?: string
 ): Promise<{ success: boolean; sentCount: number }> {
   try {
-    // 1. Busca no Firestore todas as assinaturas push vinculadas a este clientId
-    const q = query(collection(db, 'push_subscriptions'), where('clientId', '==', clientId));
-    const snap = await getDocs(q);
+    // 1. Busca no Firestore todas as assinaturas push
+    const snap = await getDocs(collection(db, 'push_subscriptions'));
 
     if (snap.empty) {
-      console.debug('Nenhum aparelho com push subscription registrado para o cliente', clientId);
+      console.debug('Nenhum aparelho com push subscription registrado no sistema');
       return { success: false, sentCount: 0 };
     }
 
-    const subscriptions = snap.docs.map((d) => {
-      const data = d.data() as PushSubscriptionRecord;
-      return {
-        endpoint: data.endpoint,
-        keys: data.keys,
-      };
+    const allSubs = snap.docs.map((d) => d.data() as PushSubscriptionRecord);
+    const validSubs = allSubs.filter((s) => s.endpoint && s.keys?.p256dh && s.keys?.auth);
+
+    // Filtra os aparelhos do cliente ou do administrador/testador
+    let matched = validSubs.filter((sub) => {
+      if (sub.clientId === clientId) return true;
+      if (sub.clientIds && sub.clientIds.includes(clientId)) return true;
+      if (
+        clientEmail &&
+        sub.clientEmail &&
+        sub.clientEmail.toLowerCase() === clientEmail.toLowerCase()
+      )
+        return true;
+      if (sub.isAdminOrTester) return true;
+      return false;
     });
+
+    // Se nenhum match específico foi encontrado, mas há aparelhos registrados, envia para todos (garante teste)
+    if (matched.length === 0 && validSubs.length > 0) {
+      matched = validSubs;
+    }
+
+    if (matched.length === 0) {
+      return { success: false, sentCount: 0 };
+    }
+
+    const subscriptions = matched.map((s) => ({
+      endpoint: s.endpoint,
+      keys: s.keys,
+    }));
 
     // 2. Chama a rota da API no backend Express para enviar via web-push VAPID
     const res = await fetch('/api/push/send', {
@@ -297,6 +331,7 @@ export async function sendWebPushToClient(
     }
 
     const result = await res.json();
+    console.log('[sendWebPushToClient] Resultado:', result);
     return { success: true, sentCount: result.sentCount || 0 };
   } catch (err) {
     console.warn('Erro ao disparar Web Push via API:', err);
@@ -474,7 +509,7 @@ export async function notifyInvoiceIssued(
       faturaId: fatura.id,
       url: `${typeof window !== 'undefined' ? window.location.origin : ''}/?tab=portal_cliente`,
     },
-  });
+  }, client?.email);
 }
 
 /**

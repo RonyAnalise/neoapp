@@ -1,7 +1,7 @@
 // Service Worker para Notificações Web Push com o aplicativo fechado
 // Suporta Android (Chrome, Edge, Samsung Internet) e iOS 16.4+ (PWA Tela de Início)
 
-self.addEventListener('install', (event) => {
+self.addEventListener('install', () => {
   self.skipWaiting();
 });
 
@@ -16,7 +16,7 @@ self.addEventListener('push', (event) => {
   if (event.data) {
     try {
       data = event.data.json();
-    } catch (e) {
+    } catch {
       data = {
         title: '⚡ Nova Fatura Lançada — Neo Energia',
         body: event.data.text() || 'Sua fatura de energia já está disponível.',
@@ -26,23 +26,20 @@ self.addEventListener('push', (event) => {
 
   const title = data.title || '⚡ Nova Fatura Lançada — Neo Energia';
   const options = {
-    body: data.body || 'Sua fatura foi emitida e está disponível para download e visualização.',
+    body: data.body || 'Sua fatura foi emitida e está disponível no Portal do Cliente.',
     icon: data.icon || '/pwa-192x192.png',
     badge: data.badge || '/icon.svg',
-    image: data.image || undefined,
     tag: data.tag || `fatura-alert-${Date.now()}`,
-    // renotify: true garante alerta sonoro/vibração mesmo se houver outra notificação anterior
     renotify: true,
-    // requireInteraction: true garante que a notificação PERMANEÇA na barra de notificações do celular
-    // tanto no Android quanto na tela de bloqueio e central de notificações do iOS até ser tocada!
     requireInteraction: true,
+    silent: false,
     vibrate: [300, 100, 300, 100, 450],
     data: data.data || { url: '/?tab=portal_cliente' },
-    actions: [
-      { action: 'open_fatura', title: '📄 Abrir Fatura' },
-      { action: 'dismiss', title: 'Dispensar' },
-    ],
   };
+
+  if (data.image) {
+    options.image = data.image;
+  }
 
   event.waitUntil(self.registration.showNotification(title, options));
 });
@@ -50,10 +47,6 @@ self.addEventListener('push', (event) => {
 // Evento de clique na notificação da barra do celular
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-
-  if (event.action === 'dismiss') {
-    return;
-  }
 
   const targetUrl =
     (event.notification.data && event.notification.data.url) || '/?tab=portal_cliente';
@@ -69,7 +62,7 @@ self.addEventListener('notificationclick', (event) => {
           return client.focus();
         }
       }
-      // Se o app estava fechado, abre uma nova janela/PWA na tela certa
+      // Se o app estava fechado, abre uma nova janela na tela certa
       if (clients.openWindow) {
         return clients.openWindow(targetUrl);
       }

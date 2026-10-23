@@ -47,22 +47,32 @@ app.post('/api/push/send', async (req: Request, res: Response) => {
 
     const results = await Promise.allSettled(
       subscriptions.map(async (sub) => {
-        return webpush.sendNotification(
-          {
-            endpoint: sub.endpoint,
-            keys: sub.keys,
-          },
-          notificationPayload,
-          {
-            TTL: 60 * 60 * 24 * 7, // 7 dias de retenção
-            urgency: 'high',
-          }
-        );
+        try {
+          const res = await webpush.sendNotification(
+            {
+              endpoint: sub.endpoint,
+              keys: sub.keys,
+            },
+            notificationPayload,
+            {
+              TTL: 60 * 60 * 24 * 7, // 7 dias de retenção
+              urgency: 'high',
+            }
+          );
+          console.log(`[WebPush] Entregue com sucesso! Status: ${res.statusCode} | Endpoint: ${sub.endpoint.slice(0, 45)}...`);
+          return res;
+        } catch (err: unknown) {
+          const status = (err as { statusCode?: number }).statusCode;
+          console.warn(`[WebPush] Falha ao entregar para ${sub.endpoint.slice(0, 45)}... (Status: ${status})`, err);
+          throw err;
+        }
       })
     );
 
     const sentCount = results.filter((r) => r.status === 'fulfilled').length;
     const failedCount = results.filter((r) => r.status === 'rejected').length;
+
+    console.log(`[WebPush Resumo] Enviados: ${sentCount} | Falhas: ${failedCount} | Total: ${subscriptions.length}`);
 
     return res.json({
       success: true,

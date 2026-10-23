@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   Receipt,
   Plus,
@@ -18,6 +18,7 @@ import {
   MessageCircle,
   BellRing,
   Smartphone,
+  Edit3,
 } from 'lucide-react';
 import { Cliente, Fatura, Leitura, EmpresaConfig, EnergyTariffs, InvoiceStatus } from '../types';
 import {
@@ -44,6 +45,7 @@ interface FaturasViewProps {
   tariffs: EnergyTariffs;
   prefillClientId?: string;
   onIssueInvoice: (invoice: Omit<Fatura, 'id' | 'createdAt'>) => Promise<void>;
+  onUpdateInvoice?: (faturaId: string, updatedData: Partial<Fatura>) => Promise<void>;
   onConfirmPayment: (faturaId: string, amount: number) => Promise<void>;
   onCancelInvoice: (faturaId: string, reason: string) => Promise<void>;
   onDeleteInvoice?: (faturaId: string) => Promise<void>;
@@ -60,6 +62,7 @@ export const FaturasView: React.FC<FaturasViewProps> = ({
   tariffs,
   prefillClientId,
   onIssueInvoice,
+  onUpdateInvoice,
   onConfirmPayment,
   onCancelInvoice,
   onDeleteInvoice,
@@ -125,6 +128,98 @@ export const FaturasView: React.FC<FaturasViewProps> = ({
     invoiceNumber: string;
     fatura: Fatura;
   } | null>(null);
+
+  // Modal de edição de fatura
+  const [editingFatura, setEditingFatura] = useState<Fatura | null>(null);
+  const [editPrevReading, setEditPrevReading] = useState<number | ''>('');
+  const [editPrevReadingDate, setEditPrevReadingDate] = useState('');
+  const [editCurrReading, setEditCurrReading] = useState<number | ''>('');
+  const [editCurrReadingDate, setEditCurrReadingDate] = useState('');
+  const [editDueDate, setEditDueDate] = useState('');
+  const [editNeoTariff, setEditNeoTariff] = useState<number>(0);
+  const [editCoelbaTariff, setEditCoelbaTariff] = useState<number>(0);
+  const [editStatus, setEditStatus] = useState<InvoiceStatus>('pending');
+  const [editNotes, setEditNotes] = useState('');
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+
+  const handleOpenEdit = (fat: Fatura) => {
+    setEditingFatura(fat);
+    setEditPrevReading(fat.previousReading);
+    setEditPrevReadingDate(fat.previousReadingDate || '');
+    setEditCurrReading(fat.currentReading);
+    setEditCurrReadingDate(fat.currentReadingDate || '');
+    setEditDueDate(fat.dueDate || '');
+    setEditNeoTariff(fat.appliedNeoTariff || tariffs.neoTariff);
+    setEditCoelbaTariff(fat.appliedCoelbaTariff || tariffs.coelbaReferenceTariff);
+    setEditStatus(fat.status);
+    setEditNotes(fat.notes || '');
+    setEditError(null);
+  };
+
+  const editPreviewCalc = useMemo(() => {
+    if (!editingFatura || editPrevReading === '' || editCurrReading === '') return null;
+    try {
+      return calculateInvoice({
+        previousReading: Number(editPrevReading),
+        currentReading: Number(editCurrReading),
+        neoTariff: editNeoTariff,
+        coelbaTariff: editCoelbaTariff,
+      });
+    } catch {
+      return null;
+    }
+  }, [editingFatura, editPrevReading, editCurrReading, editNeoTariff, editCoelbaTariff]);
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingFatura || !onUpdateInvoice) return;
+    if (editPrevReading === '' || editCurrReading === '') {
+      setEditError('Preencha os valores de leitura anterior e atual.');
+      return;
+    }
+    if (Number(editCurrReading) < Number(editPrevReading)) {
+      setEditError('A leitura atual não pode ser inferior à leitura anterior.');
+      return;
+    }
+
+    setSavingEdit(true);
+    setEditError(null);
+    try {
+      const calc =
+        editPreviewCalc ||
+        calculateInvoice({
+          previousReading: Number(editPrevReading),
+          currentReading: Number(editCurrReading),
+          neoTariff: editNeoTariff,
+          coelbaTariff: editCoelbaTariff,
+        });
+
+      await onUpdateInvoice(editingFatura.id, {
+        previousReading: Number(editPrevReading),
+        previousReadingDate: editPrevReadingDate,
+        currentReading: Number(editCurrReading),
+        currentReadingDate: editCurrReadingDate,
+        dueDate: editDueDate,
+        appliedNeoTariff: editNeoTariff,
+        appliedCoelbaTariff: editCoelbaTariff,
+        consumptionKwh: calc.consumptionKwh,
+        neoAmount: calc.neoAmount,
+        coelbaEstimateAmount: calc.coelbaEstimateAmount,
+        savingsAmount: calc.savingsAmount,
+        savingsPercentage: calc.savingsPercentage,
+        totalToPay: calc.totalToPay,
+        status: editStatus,
+        notes: editNotes,
+      });
+
+      setEditingFatura(null);
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : 'Erro ao salvar alterações da fatura.');
+    } finally {
+      setSavingEdit(false);
+    }
+  };
 
   // Open create invoice dialog and auto-fill previous readings for client
   const handleOpenCreate = (targetClientId?: string) => {
@@ -725,6 +820,17 @@ export const FaturasView: React.FC<FaturasViewProps> = ({
                           <span>Fatura</span>
                         </button>
 
+                        {onUpdateInvoice && (
+                          <button
+                            onClick={() => handleOpenEdit(fat)}
+                            className="flex items-center gap-1 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 px-2.5 py-1 text-xs font-bold text-gray-700 transition cursor-pointer shadow-2xs"
+                            title="Editar valores e dados da fatura"
+                          >
+                            <Edit3 className="w-3.5 h-3.5 text-blue-600" />
+                            <span>Editar</span>
+                          </button>
+                        )}
+
                         {(() => {
                           const cli = clientes.find((c) => c.id === fat.clientId);
                           if (!cli) return null;
@@ -1233,6 +1339,209 @@ export const FaturasView: React.FC<FaturasViewProps> = ({
                 {deletingInvoice ? 'Excluindo...' : 'Sim, Excluir Fatura'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Editar Fatura */}
+      {editingFatura && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 p-4 backdrop-blur-xs flex items-center justify-center">
+          <div className="w-full max-w-2xl bg-white rounded-3xl p-6 sm:p-8 shadow-2xl border border-gray-100 max-h-[92vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3 mb-4">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-blue-100 text-blue-800 flex items-center justify-center font-black">
+                  <Edit3 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-gray-900">
+                    Editar Fatura #{editingFatura.invoiceNumber}
+                  </h3>
+                  <p className="text-xs text-gray-500">
+                    {editingFatura.clientName} • Competência {formatReferencePeriod(editingFatura.referenceMonth, editingFatura.referenceYear)}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setEditingFatura(null)}
+                className="text-gray-400 hover:text-gray-600 cursor-pointer p-1 rounded-lg"
+              >
+                ✕
+              </button>
+            </div>
+
+            {editError && (
+              <div className="mb-4 flex items-center gap-2 rounded-xl bg-rose-50 p-3 text-xs text-rose-700 border border-rose-200">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <span>{editError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleSaveEdit} className="space-y-4 text-xs">
+              {/* Leituras */}
+              <div className="rounded-2xl bg-gray-50/80 p-4 border border-gray-200/70">
+                <h4 className="font-bold text-gray-800 mb-3 flex items-center gap-1.5">
+                  <Zap className="w-4 h-4 text-emerald-600" />
+                  Leituras do Medidor (kWh)
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-semibold text-gray-700 mb-1">Data Leitura Anterior</label>
+                    <input
+                      type="date"
+                      value={editPrevReadingDate}
+                      onChange={(e) => setEditPrevReadingDate(e.target.value)}
+                      className="w-full rounded-xl border border-gray-300 p-2.5 text-gray-900 bg-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-gray-700 mb-1">Leitura Anterior (kWh) *</label>
+                    <input
+                      type="number"
+                      step="any"
+                      required
+                      value={editPrevReading}
+                      onChange={(e) => setEditPrevReading(e.target.value === '' ? '' : Number(e.target.value))}
+                      className="w-full rounded-xl border border-gray-300 p-2.5 text-gray-900 font-mono font-bold bg-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-gray-700 mb-1">Data Leitura Atual</label>
+                    <input
+                      type="date"
+                      value={editCurrReadingDate}
+                      onChange={(e) => setEditCurrReadingDate(e.target.value)}
+                      className="w-full rounded-xl border border-gray-300 p-2.5 text-gray-900 bg-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-gray-700 mb-1">Leitura Atual (kWh) *</label>
+                    <input
+                      type="number"
+                      step="any"
+                      required
+                      value={editCurrReading}
+                      onChange={(e) => setEditCurrReading(e.target.value === '' ? '' : Number(e.target.value))}
+                      className="w-full rounded-xl border border-gray-300 p-2.5 text-gray-900 font-mono font-bold bg-white"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Vencimento e Tarifas */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block font-bold text-gray-700 mb-1">Data de Vencimento *</label>
+                  <input
+                    type="date"
+                    required
+                    value={editDueDate}
+                    onChange={(e) => setEditDueDate(e.target.value)}
+                    className="w-full rounded-xl border border-gray-300 p-2.5 text-gray-900"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-gray-700 mb-1">Tarifa Neo (R$/kWh)</label>
+                  <input
+                    type="number"
+                    step="0.0001"
+                    value={editNeoTariff}
+                    onChange={(e) => setEditNeoTariff(Number(e.target.value))}
+                    className="w-full rounded-xl border border-gray-300 p-2.5 text-gray-900 font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-gray-700 mb-1">Tarifa Coelba (R$/kWh)</label>
+                  <input
+                    type="number"
+                    step="0.0001"
+                    value={editCoelbaTariff}
+                    onChange={(e) => setEditCoelbaTariff(Number(e.target.value))}
+                    className="w-full rounded-xl border border-gray-300 p-2.5 text-gray-900 font-mono"
+                  />
+                </div>
+              </div>
+
+              {/* Status */}
+              <div>
+                <label className="block font-bold text-gray-700 mb-1">Status da Fatura</label>
+                <select
+                  value={editStatus}
+                  onChange={(e) => setEditStatus(e.target.value as InvoiceStatus)}
+                  className="w-full rounded-xl border border-gray-300 p-2.5 text-gray-900 font-bold"
+                >
+                  <option value="pending">Pendente (Aguardando Pagamento)</option>
+                  <option value="paid">Paga (Confirmada)</option>
+                  <option value="overdue">Vencida</option>
+                  <option value="cancelled">Cancelada</option>
+                </select>
+              </div>
+
+              {/* Observações */}
+              <div>
+                <label className="block font-bold text-gray-700 mb-1">Observações Internas</label>
+                <textarea
+                  rows={2}
+                  value={editNotes}
+                  onChange={(e) => setEditNotes(e.target.value)}
+                  placeholder="Informações adicionais..."
+                  className="w-full rounded-xl border border-gray-300 p-2.5 text-gray-900"
+                />
+              </div>
+
+              {/* Recálculo em tempo real */}
+              {editPreviewCalc && (
+                <div className="rounded-2xl bg-blue-50/80 p-4 border border-blue-200/80 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-blue-900">Consumo Calculado:</span>
+                    <span className="font-mono font-bold text-blue-950 text-sm">
+                      {formatNumberBr(editPreviewCalc.consumptionKwh)} kWh
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-gray-600">
+                    <span>Estimativa Concessionária (s/ desconto):</span>
+                    <span className="font-mono">{formatCurrency(editPreviewCalc.coelbaEstimateAmount)}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-emerald-700">
+                    <span>Economia para o Cliente:</span>
+                    <span className="font-mono font-bold">
+                      {formatCurrency(editPreviewCalc.savingsAmount)} ({editPreviewCalc.savingsPercentage.toFixed(1)}%)
+                    </span>
+                  </div>
+                  <div className="pt-2 border-t border-blue-200 flex items-center justify-between text-sm">
+                    <span className="font-bold text-blue-950">Novo Total a Pagar:</span>
+                    <span className="font-mono font-black text-lg text-blue-900">
+                      {formatCurrency(editPreviewCalc.totalToPay)}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Ações */}
+              <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
+                <button
+                  type="button"
+                  disabled={savingEdit}
+                  onClick={() => setEditingFatura(null)}
+                  className="rounded-xl border border-gray-300 px-5 py-2.5 font-bold text-gray-700 hover:bg-gray-100 transition cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingEdit}
+                  className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold px-6 py-2.5 shadow-md transition cursor-pointer disabled:opacity-50 flex items-center gap-2"
+                >
+                  {savingEdit ? (
+                    <>
+                      <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Salvando Alterações...
+                    </>
+                  ) : (
+                    'Salvar Alterações'
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

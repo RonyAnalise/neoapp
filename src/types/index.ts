@@ -178,6 +178,7 @@ export interface AuditoriaLog {
     | 'inactivate_client'
     | 'register_reading'
     | 'issue_invoice'
+    | 'edit_invoice'
     | 'cancel_invoice'
     | 'confirm_payment'
     | 'delete_boleto'
@@ -237,7 +238,9 @@ export interface NotificacaoCliente {
 export interface PushSubscriptionRecord {
   id: string;
   clientId: string;
+  clientIds?: string[];
   clientEmail?: string;
+  isAdminOrTester?: boolean;
   endpoint: string;
   keys: {
     p256dh: string;
