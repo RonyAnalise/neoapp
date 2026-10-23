@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   Zap,
   TrendingDown,
@@ -26,6 +26,11 @@ import {
   Layers,
   Receipt,
   FileCheck2,
+  Bell,
+  BellRing,
+  Smartphone,
+  MessageCircle,
+  X,
 } from 'lucide-react';
 import { Cliente, EmpresaConfig, Fatura, Leitura } from '../types';
 import {
@@ -36,6 +41,16 @@ import {
   MONTH_NAMES_BR,
 } from '../lib/calculations';
 import { downloadBoletoFile, openBoletoInNewTab } from '../lib/boletoService';
+import {
+  getNotificationPermission,
+  requestNotificationPermission,
+  triggerTestMobileNotification,
+  notifyInvoiceIssued,
+  subscribeToInAppNotifications,
+  getWhatsAppNotificationUrl,
+  InAppNotificationPayload,
+  NotificationPermissionStatus,
+} from '../lib/notificationService';
 import { useAuth } from '../hooks/useAuth';
 
 interface PortalClienteViewProps {
@@ -62,6 +77,13 @@ export const PortalClienteView: React.FC<PortalClienteViewProps> = ({
   const [faturaFilter, setFaturaFilter] = useState<'todas' | 'pendentes' | 'pagas'>('todas');
   const [copiedPixId, setCopiedPixId] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
+
+  // Estados de Notificações no Celular
+  const [permissionStatus, setPermissionStatus] = useState<NotificationPermissionStatus>(() =>
+    getNotificationPermission()
+  );
+  const [activeToastNotification, setActiveToastNotification] = useState<InAppNotificationPayload | null>(null);
+  const [testNotificationFeedback, setTestNotificationFeedback] = useState<string | null>(null);
 
   // 1. Identifica todos os medidores/clientes vinculados ao mesmo e-mail ou CPF
   const userEmail = (userProfile?.email || currentUser?.email || '').trim().toLowerCase();
@@ -235,6 +257,74 @@ export const PortalClienteView: React.FC<PortalClienteViewProps> = ({
     setTimeout(() => setCopiedPixId(null), 3000);
   };
 
+  // 1. Assina o canal de notificações in-app em tempo real
+  useEffect(() => {
+    const unsub = subscribeToInAppNotifications((payload) => {
+      // Filtra para notificações destinadas a este cliente
+      if (
+        !payload.faturaId ||
+        clientFaturas.some((f) => f.id === payload.faturaId) ||
+        (payload.clientName && primaryClient.name.includes(payload.clientName))
+      ) {
+        setActiveToastNotification(payload);
+      }
+    });
+    return unsub;
+  }, [clientFaturas, primaryClient]);
+
+  // 2. Monitora faturas em tempo real e dispara alerta sonoro, vibração e notificação no celular
+  const initialFaturasProcessedRef = useRef(false);
+  const knownInvoiceIdsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (!initialFaturasProcessedRef.current) {
+      faturas.forEach((f) => knownInvoiceIdsRef.current.add(f.id));
+      initialFaturasProcessedRef.current = true;
+      return;
+    }
+
+    // Detecta nova fatura lançada pela empresa para os medidores deste cliente
+    const newFaturas = faturas.filter(
+      (f) => !knownInvoiceIdsRef.current.has(f.id) && activeClientIds.includes(f.clientId)
+    );
+
+    if (newFaturas.length > 0) {
+      newFaturas.forEach((newFat) => {
+        knownInvoiceIdsRef.current.add(newFat.id);
+        const matchedCli = clientes.find((c) => c.id === newFat.clientId) || primaryClient;
+        notifyInvoiceIssued(newFat, matchedCli);
+      });
+    } else {
+      faturas.forEach((f) => knownInvoiceIdsRef.current.add(f.id));
+    }
+  }, [faturas, activeClientIds, clientes, primaryClient]);
+
+  // 3. Ativação e teste de notificações no celular
+  const handleEnableNotifications = async () => {
+    setTestNotificationFeedback('Solicitando autorização do navegador...');
+    const granted = await requestNotificationPermission();
+    const updated = getNotificationPermission();
+    setPermissionStatus(updated);
+
+    if (granted) {
+      setTestNotificationFeedback('✓ Notificações no celular ativadas com sucesso!');
+      await triggerTestMobileNotification(primaryClient.name);
+      setTimeout(() => setTestNotificationFeedback(null), 5000);
+    } else {
+      setTestNotificationFeedback(
+        'Permissão de notificação não concedida. Verifique se o navegador bloqueou as permissões.'
+      );
+      setTimeout(() => setTestNotificationFeedback(null), 6000);
+    }
+  };
+
+  const handleTestNotification = async () => {
+    setTestNotificationFeedback('Disparando alerta sonoro e vibração no celular...');
+    await triggerTestMobileNotification(primaryClient.name);
+    setTestNotificationFeedback('✓ Alerta disparado no seu celular!');
+    setTimeout(() => setTestNotificationFeedback(null), 4000);
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col font-sans text-gray-900">
       {/* Top Header do Portal */}
@@ -261,8 +351,35 @@ export const PortalClienteView: React.FC<PortalClienteViewProps> = ({
               </div>
             </div>
 
-            {/* Ações Topo: Voltar ao Admin (se aplicável) e Logout */}
-            <div className="flex items-center gap-2 self-end sm:self-auto">
+            {/* Ações Topo: Notificações, Voltar ao Admin (se aplicável) e Logout */}
+            <div className="flex flex-wrap items-center gap-2 self-end sm:self-auto">
+              <button
+                type="button"
+                onClick={permissionStatus === 'granted' ? handleTestNotification : handleEnableNotifications}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer border shadow-xs ${
+                  permissionStatus === 'granted'
+                    ? 'bg-emerald-800/90 hover:bg-emerald-800 text-emerald-100 border-emerald-600'
+                    : 'bg-amber-400 hover:bg-amber-300 text-emerald-950 font-black border-amber-300 animate-pulse'
+                }`}
+                title={
+                  permissionStatus === 'granted'
+                    ? 'Notificações no celular ativas. Clique para testar.'
+                    : 'Clique para ativar notificações no celular'
+                }
+              >
+                {permissionStatus === 'granted' ? (
+                  <>
+                    <BellRing className="w-3.5 h-3.5 text-yellow-300" />
+                    <span>Notificações Ativas</span>
+                  </>
+                ) : (
+                  <>
+                    <Bell className="w-3.5 h-3.5" />
+                    <span>Ativar no Celular</span>
+                  </>
+                )}
+              </button>
+
               {(isAdmin || isOperator) && onBackToAdmin && (
                 <button
                   type="button"
@@ -342,6 +459,65 @@ export const PortalClienteView: React.FC<PortalClienteViewProps> = ({
         </div>
       </header>
 
+      {/* Toast de Notificação de Nova Fatura no Celular */}
+      {activeToastNotification && (
+        <div className="bg-gradient-to-r from-yellow-400 via-amber-300 to-yellow-400 text-emerald-950 px-4 py-3 shadow-lg border-b-2 border-yellow-500 animate-in fade-in slide-in-from-top-4 duration-300">
+          <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-emerald-950 text-yellow-300 flex items-center justify-center shrink-0 shadow-xs">
+                <BellRing className="w-5 h-5 animate-bounce" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="bg-emerald-950 text-yellow-300 text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider">
+                    Alerta no Celular
+                  </span>
+                  <span className="text-xs font-black">
+                    {activeToastNotification.title}
+                  </span>
+                </div>
+                <p className="text-xs font-bold text-emerald-950 mt-0.5 line-clamp-2">
+                  {activeToastNotification.message}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
+              {activeToastNotification.faturaId && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const targetFat = clientFaturas.find(
+                      (f) => f.id === activeToastNotification.faturaId
+                    ) || faturas.find((f) => f.id === activeToastNotification.faturaId);
+                    if (targetFat) onOpenInvoiceModal(targetFat);
+                    setActiveToastNotification(null);
+                  }}
+                  className="px-3.5 py-1.5 rounded-xl bg-emerald-950 text-white font-black text-xs hover:bg-emerald-900 transition shadow-xs cursor-pointer"
+                >
+                  Visualizar Fatura
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setActiveToastNotification(null)}
+                className="p-1.5 rounded-lg hover:bg-black/10 transition cursor-pointer text-emerald-950"
+                title="Fechar"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Feedback de Teste de Notificação */}
+      {testNotificationFeedback && (
+        <div className="bg-emerald-900 text-yellow-200 text-xs font-bold py-2.5 px-4 text-center border-b border-emerald-800 animate-in fade-in duration-200">
+          {testNotificationFeedback}
+        </div>
+      )}
+
       {/* Navegação Principal em Abas */}
       <nav className="bg-white border-b border-gray-200 sticky top-0 z-20 shadow-xs">
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
@@ -405,6 +581,67 @@ export const PortalClienteView: React.FC<PortalClienteViewProps> = ({
         {/* 1. ABA DE FATURAS E BOLETOS */}
         {activeTab === 'faturas' && (
           <div className="space-y-6">
+            {/* Card de Notificações no Celular */}
+            <div className="bg-white rounded-2xl border border-emerald-200/90 p-4 sm:p-5 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+              <div className="flex items-start gap-3.5">
+                <div
+                  className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 shadow-xs ${
+                    permissionStatus === 'granted'
+                      ? 'bg-emerald-100 text-emerald-800'
+                      : 'bg-amber-100 text-amber-800'
+                  }`}
+                >
+                  <BellRing className={`w-6 h-6 ${permissionStatus === 'granted' ? 'text-emerald-700' : 'text-amber-600 animate-pulse'}`} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h4 className="text-sm font-black text-gray-900">
+                      Notificações no Celular ao Lançar Faturas
+                    </h4>
+                    {permissionStatus === 'granted' ? (
+                      <span className="bg-emerald-100 text-emerald-800 text-[10px] font-black px-2.5 py-0.5 rounded-full border border-emerald-300 flex items-center gap-1">
+                        <Check className="w-3 h-3 text-emerald-700" />
+                        ATIVADO
+                      </span>
+                    ) : (
+                      <span className="bg-amber-100 text-amber-900 text-[10px] font-black px-2 py-0.5 rounded-full border border-amber-300">
+                        DISPONÍVEL
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-gray-600 mt-1 max-w-2xl">
+                    {permissionStatus === 'granted'
+                      ? 'Seu smartphone vibrará e tocará um aviso sempre que a empresa emitir uma fatura ou disponibilizar boleto para os seus medidores.'
+                      : 'Ative para ser alertado no seu smartphone no exato instante em que a empresa lançar uma nova fatura ou boleto para seu consumo.'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+                {permissionStatus === 'granted' ? (
+                  <button
+                    type="button"
+                    onClick={handleTestNotification}
+                    className="flex-1 md:flex-initial flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-black text-xs transition cursor-pointer shadow-xs"
+                    title="Disparar aviso de teste no seu celular com som e vibração"
+                  >
+                    <Smartphone className="w-4 h-4 text-emerald-200" />
+                    <span>Testar Alerta no Celular</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleEnableNotifications}
+                    className="flex-1 md:flex-initial flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-black text-xs transition cursor-pointer shadow-xs"
+                    title="Autorizar notificações de faturas no smartphone"
+                  >
+                    <Bell className="w-4 h-4 text-yellow-300" />
+                    <span>Ativar Notificações no Celular</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
             {/* Banner de Boletos / Faturas Pendentes com Ação Rápida */}
             {pendingFaturas.length > 0 && (() => {
               const pendingFat = pendingFaturas[0];
@@ -673,6 +910,19 @@ export const PortalClienteView: React.FC<PortalClienteViewProps> = ({
                               )}
                               <span>{copiedPixId === fat.id ? 'Copiado!' : 'PIX'}</span>
                             </button>
+                          )}
+
+                          {matchedClient && getWhatsAppNotificationUrl(matchedClient, fat) && (
+                            <a
+                              href={getWhatsAppNotificationUrl(matchedClient, fat)!}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center justify-center gap-1 rounded-xl border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 py-2 px-2.5 text-xs font-bold text-emerald-800 transition cursor-pointer"
+                              title="Receber resumo e link desta fatura no WhatsApp"
+                            >
+                              <MessageCircle className="w-3.5 h-3.5 text-emerald-700" />
+                              <span className="hidden sm:inline">WhatsApp</span>
+                            </a>
                           )}
                         </div>
                       </div>

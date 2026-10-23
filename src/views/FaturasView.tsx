@@ -15,6 +15,9 @@ import {
   DollarSign,
   ArrowRight,
   Zap,
+  MessageCircle,
+  BellRing,
+  Smartphone,
 } from 'lucide-react';
 import { Cliente, Fatura, Leitura, EmpresaConfig, EnergyTariffs, InvoiceStatus } from '../types';
 import {
@@ -31,6 +34,7 @@ import { BoletoModal } from '../components/BoletoModal';
 import { logAuditEvent } from '../lib/auditService';
 import { useAuth } from '../hooks/useAuth';
 import { downloadBoletoFile } from '../lib/boletoService';
+import { getWhatsAppNotificationUrl } from '../lib/notificationService';
 
 interface FaturasViewProps {
   faturas: Fatura[];
@@ -111,10 +115,16 @@ export const FaturasView: React.FC<FaturasViewProps> = ({
   const [confirmCancelOpen, setConfirmCancelOpen] = useState(false);
   const [processingCancel, setProcessingCancel] = useState(false);
 
-  // Deletion modal state
   const [invoiceToDelete, setInvoiceToDelete] = useState<Fatura | null>(null);
   const [deletingInvoice, setDeletingInvoice] = useState(false);
   const [deleteInvoiceError, setDeleteInvoiceError] = useState<string | null>(null);
+
+  // Notificação de fatura emitida
+  const [issuedNotificationSuccess, setIssuedNotificationSuccess] = useState<{
+    client: Cliente;
+    invoiceNumber: string;
+    fatura: Fatura;
+  } | null>(null);
 
   // Open create invoice dialog and auto-fill previous readings for client
   const handleOpenCreate = (targetClientId?: string) => {
@@ -347,6 +357,43 @@ export const FaturasView: React.FC<FaturasViewProps> = ({
         },
       });
 
+      const createdFatPreview: Fatura = {
+        id: invoiceNumber,
+        invoiceNumber,
+        clientId,
+        clientName: selectedClient.name,
+        referenceMonth: invoiceMonth,
+        referenceYear: invoiceYear,
+        previousReading: Number(prevReading),
+        previousReadingDate: prevReadingDate || new Date().toISOString().split('T')[0],
+        currentReading: Number(currReading),
+        currentReadingDate: currReadingDate,
+        consumptionKwh: calc.consumptionKwh,
+        appliedNeoTariff: effectiveNeoTariff,
+        appliedCoelbaTariff: effectiveCoelbaTariff,
+        neoAmount: calc.neoAmount,
+        coelbaEstimateAmount: calc.coelbaEstimateAmount,
+        savingsAmount: calc.savingsAmount,
+        savingsPercentage: calc.savingsPercentage,
+        totalToPay: calc.totalToPay,
+        issueDate: new Date().toISOString().split('T')[0],
+        dueDate,
+        status: 'pending',
+        notes,
+        boletoBase64: createBoletoBase64 || null,
+        boletoFileName: createBoletoFile?.name || null,
+        boletoUploadedAt: createBoletoBase64 ? new Date().toISOString() : null,
+        boletoStoragePath: null,
+        createdAt: new Date().toISOString(),
+        createdBy: userProfile?.name || 'Operador',
+      };
+
+      setIssuedNotificationSuccess({
+        client: selectedClient,
+        invoiceNumber,
+        fatura: createdFatPreview,
+      });
+
       setCreateModalOpen(false);
     } catch (err) {
       setFormError(err instanceof Error ? err.message : 'Erro ao emitir fatura.');
@@ -436,6 +483,59 @@ export const FaturasView: React.FC<FaturasViewProps> = ({
 
   return (
     <div className="space-y-6">
+      {/* Banner de Notificação de Fatura Emitida para o Celular */}
+      {issuedNotificationSuccess && (
+        <div className="rounded-2xl bg-gradient-to-r from-emerald-800 to-[#0c3319] p-4 text-white shadow-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-in fade-in slide-in-from-top-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-yellow-400 text-emerald-950 flex items-center justify-center font-black shrink-0 shadow-xs">
+              <BellRing className="w-5 h-5 animate-bounce" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="bg-emerald-700 text-yellow-300 text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider">
+                  Notificação no Celular
+                </span>
+                <span className="text-sm font-black">
+                  Fatura #{issuedNotificationSuccess.invoiceNumber} Lançada com Sucesso!
+                </span>
+              </div>
+              <p className="text-xs text-emerald-200 mt-0.5">
+                O Portal do Cliente notificou o celular de{' '}
+                <strong>{issuedNotificationSuccess.client.name}</strong> em tempo real com som e vibração.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
+            {getWhatsAppNotificationUrl(
+              issuedNotificationSuccess.client,
+              issuedNotificationSuccess.fatura
+            ) && (
+              <a
+                href={getWhatsAppNotificationUrl(
+                  issuedNotificationSuccess.client,
+                  issuedNotificationSuccess.fatura
+                )!}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-emerald-950 font-black text-xs transition shadow-xs cursor-pointer"
+                title="Avisar também pelo WhatsApp"
+              >
+                <MessageCircle className="w-4 h-4" />
+                <span>Enviar no WhatsApp</span>
+              </a>
+            )}
+            <button
+              type="button"
+              onClick={() => setIssuedNotificationSuccess(null)}
+              className="p-1 rounded-lg text-emerald-300 hover:text-white transition cursor-pointer"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Search and Filters Bar */}
       <div className="bg-white rounded-2xl p-4 sm:p-5 border border-gray-200/80 shadow-xs flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-4">
         <div className="flex-1 flex flex-col sm:flex-row items-center gap-3">
@@ -624,6 +724,24 @@ export const FaturasView: React.FC<FaturasViewProps> = ({
                           <Eye className="w-3.5 h-3.5" />
                           <span>Fatura</span>
                         </button>
+
+                        {(() => {
+                          const cli = clientes.find((c) => c.id === fat.clientId);
+                          if (!cli) return null;
+                          const waUrl = getWhatsAppNotificationUrl(cli, fat);
+                          if (!waUrl) return null;
+                          return (
+                            <a
+                              href={waUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="p-1 rounded-lg border border-emerald-200 text-emerald-600 hover:bg-emerald-50 transition cursor-pointer"
+                              title="Avisar cliente no WhatsApp"
+                            >
+                              <MessageCircle className="w-3.5 h-3.5 text-emerald-700" />
+                            </a>
+                          );
+                        })()}
 
                         {fat.status !== 'paid' && fat.status !== 'cancelled' && (
                           <button

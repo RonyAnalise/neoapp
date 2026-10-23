@@ -98,5 +98,13 @@ service cloud.firestore {
       allow create, update: if isSignedIn();
       allow delete: if isAdmin() || isSignedIn();
     }
+
+    // Notificações de Faturas para o Portal do Cliente
+    match /notificacoes/{notificacaoId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
+      allow delete: if isAdmin() || isSignedIn();
+    }
   }
 }

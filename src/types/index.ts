@@ -216,3 +216,21 @@ export interface ViaCepResponse {
   siafi: string;
   erro?: boolean;
 }
+
+export interface NotificacaoCliente {
+  id: string;
+  clientId: string;
+  clientEmail?: string;
+  faturaId: string;
+  invoiceNumber: string;
+  referenceMonth: number;
+  referenceYear: number;
+  totalToPay: number;
+  savingsAmount: number;
+  title: string;
+  message: string;
+  hasBoleto?: boolean;
+  read: boolean;
+  createdAt: string;
+}
+

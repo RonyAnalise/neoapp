@@ -27,7 +27,10 @@ import {
   AuditoriaLog,
   UserRole,
   TaxaCoelba,
+  NotificacaoCliente,
 } from './types';
+import { notifyInvoiceIssued } from './lib/notificationService';
+import { formatCurrency, formatReferencePeriod } from './lib/calculations';
 
 // Components & Views
 import { Sidebar, ActiveTab } from './components/Sidebar';
@@ -428,10 +431,39 @@ function MainApp() {
 
   const handleIssueInvoice = async (invoiceData: Omit<Fatura, 'id' | 'createdAt'>) => {
     const newRef = doc(collection(db, 'faturas'));
-    await setDoc(newRef, {
+    const createdFatura: Fatura = {
+      id: newRef.id,
       ...invoiceData,
       createdAt: new Date().toISOString(),
-    });
+    };
+    await setDoc(newRef, createdFatura);
+
+    // Registra notificação no Firestore para o portal do cliente no celular
+    try {
+      const matchedClient = clientes.find((c) => c.id === invoiceData.clientId);
+      const notifRef = doc(collection(db, 'notificacoes'));
+      const notifData: Omit<NotificacaoCliente, 'id'> = {
+        clientId: invoiceData.clientId,
+        clientEmail: matchedClient?.email || '',
+        faturaId: newRef.id,
+        invoiceNumber: invoiceData.invoiceNumber,
+        referenceMonth: invoiceData.referenceMonth,
+        referenceYear: invoiceData.referenceYear,
+        totalToPay: invoiceData.totalToPay,
+        savingsAmount: invoiceData.savingsAmount,
+        title: '⚡ Nova Fatura Lançada — Neo Energia',
+        message: `Sua fatura de ${formatReferencePeriod(invoiceData.referenceMonth, invoiceData.referenceYear)} no valor de ${formatCurrency(invoiceData.totalToPay)} foi lançada. Economia calculada de ${formatCurrency(invoiceData.savingsAmount)}!`,
+        hasBoleto: !!(invoiceData.boletoBase64 || invoiceData.boletoStoragePath),
+        read: false,
+        createdAt: new Date().toISOString(),
+      };
+      await setDoc(notifRef, notifData);
+
+      // Dispara o alerta sonoro, vibratório e notificação nativa do dispositivo
+      await notifyInvoiceIssued(createdFatura, matchedClient);
+    } catch (err) {
+      console.warn('Erro ao salvar ou disparar notificação de fatura:', err);
+    }
   };
 
   const handleDeleteInvoice = async (faturaId: string) => {

@@ -210,6 +210,28 @@
         "createdBy": { "type": "string" }
       },
       "required": ["clientId", "clientName", "clientCodeCoelba", "data", "comprovanteBase64", "status", "createdAt"]
+    },
+    "Notificacao": {
+      "title": "Notificacao",
+      "description": "Notificações enviadas aos clientes quando novas faturas são lançadas.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "clientId": { "type": "string" },
+        "clientEmail": { "type": "string" },
+        "faturaId": { "type": "string" },
+        "invoiceNumber": { "type": "string", "maxLength": 50 },
+        "referenceMonth": { "type": "number" },
+        "referenceYear": { "type": "number" },
+        "totalToPay": { "type": "number" },
+        "savingsAmount": { "type": "number" },
+        "title": { "type": "string", "maxLength": 150 },
+        "message": { "type": "string", "maxLength": 500 },
+        "hasBoleto": { "type": "boolean" },
+        "read": { "type": "boolean" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["clientId", "faturaId", "title", "message", "createdAt"]
     }
   },
   "firestore": {
@@ -256,6 +278,10 @@
     "/taxas_coelba/{taxaId}": {
       "schema": { "$ref": "#/entities/TaxaCoelba" },
       "description": "Comprovantes de taxas quitadas da concessionária Coelba."
+    },
+    "/notificacoes/{notificacaoId}": {
+      "schema": { "$ref": "#/entities/Notificacao" },
+      "description": "Notificações enviadas aos clientes para alertas no celular."
     }
   }
 }
