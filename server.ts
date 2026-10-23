@@ -21,6 +21,21 @@ const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:ronycvcsales@gmail.co
 
 webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
 
+// Serve os scripts de Service Worker com cabeçalhos adequados para PWA e Push
+app.get(['/sw.js', '/push-sw.js'], (_req: Request, res: Response) => {
+  res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+  res.setHeader('Service-Worker-Allowed', '/');
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.sendFile(path.join(__dirname, 'public', 'push-sw.js'));
+});
+
+// Serve o manifesto PWA
+app.get(['/manifest.json', '/manifest.webmanifest'], (_req: Request, res: Response) => {
+  res.setHeader('Content-Type', 'application/manifest+json; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.sendFile(path.join(__dirname, 'public', 'manifest.json'));
+});
+
 // Retorna a chave pública VAPID para registro no Service Worker do celular
 app.get('/api/push/vapid-public-key', (_req: Request, res: Response) => {
   res.json({ publicKey: VAPID_PUBLIC_KEY });
@@ -33,14 +48,17 @@ app.post('/api/push/send', async (req: Request, res: Response) => {
     const { subscriptions, payload } = req.body;
 
     if (!subscriptions || !Array.isArray(subscriptions) || subscriptions.length === 0) {
+      console.log('[WebPush] Requisição recebida sem assinaturas cadastradas');
       return res.status(400).json({ error: 'Nenhuma assinatura informada para push' });
     }
+
+    console.log(`[WebPush] Disparando notificação para ${subscriptions.length} dispositivo(s)... Título: "${payload?.title}"`);
 
     const notificationPayload = JSON.stringify({
       title: payload?.title || '⚡ Nova Fatura Lançada — Neo Energia',
       body: payload?.body || 'Sua fatura foi emitida e está disponível no Portal do Cliente.',
       icon: payload?.icon || '/pwa-192x192.png',
-      badge: payload?.badge || '/icon.svg',
+      badge: '/pwa-192x192.png',
       tag: payload?.tag || `fatura-${Date.now()}`,
       data: payload?.data || { url: '/?tab=portal_cliente' },
     });

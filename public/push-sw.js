@@ -1,7 +1,7 @@
 // Service Worker para Notificações Web Push com o aplicativo fechado
 // Suporta Android (Chrome, Edge, Samsung Internet) e iOS 16.4+ (PWA Tela de Início)
 
-self.addEventListener('install', () => {
+self.addEventListener('install', (event) => {
   self.skipWaiting();
 });
 
@@ -9,14 +9,14 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(self.clients.claim());
 });
 
-// Evento PUSH: Disparado pelo sistema operacional do celular quando o servidor envia uma notificação
-// Funciona mesmo se o app estiver totalmente FECHADO ou o celular estiver com a tela bloqueada!
+// Evento PUSH: Disparado pelo sistema operacional do celular via FCM/APNs
+// Funciona mesmo se o app estiver totalmente FECHADO ou com a tela bloqueada!
 self.addEventListener('push', (event) => {
   let data = {};
   if (event.data) {
     try {
       data = event.data.json();
-    } catch {
+    } catch (e) {
       data = {
         title: '⚡ Nova Fatura Lançada — Neo Energia',
         body: event.data.text() || 'Sua fatura de energia já está disponível.',
@@ -28,20 +28,27 @@ self.addEventListener('push', (event) => {
   const options = {
     body: data.body || 'Sua fatura foi emitida e está disponível no Portal do Cliente.',
     icon: data.icon || '/pwa-192x192.png',
-    badge: data.badge || '/icon.svg',
+    badge: '/pwa-192x192.png',
     tag: data.tag || `fatura-alert-${Date.now()}`,
     renotify: true,
     requireInteraction: true,
     silent: false,
     vibrate: [300, 100, 300, 100, 450],
     data: data.data || { url: '/?tab=portal_cliente' },
+    actions: [
+      { action: 'open_invoice', title: '📄 Ver Fatura' }
+    ]
   };
 
-  if (data.image) {
-    options.image = data.image;
-  }
-
-  event.waitUntil(self.registration.showNotification(title, options));
+  event.waitUntil(
+    self.registration.showNotification(title, options).catch((err) => {
+      console.warn('showNotification fallback:', err);
+      return self.registration.showNotification(title, {
+        body: data.body || 'Sua fatura de energia já está disponível no Portal do Cliente.',
+        icon: '/pwa-192x192.png',
+      });
+    })
+  );
 });
 
 // Evento de clique na notificação da barra do celular
@@ -53,7 +60,6 @@ self.addEventListener('notificationclick', (event) => {
 
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
-      // Se houver uma aba do portal já aberta, foca nela e navega
       for (const client of clientList) {
         if (client.url.includes(self.location.origin) && 'focus' in client) {
           if ('navigate' in client && targetUrl) {
@@ -62,7 +68,6 @@ self.addEventListener('notificationclick', (event) => {
           return client.focus();
         }
       }
-      // Se o app estava fechado, abre uma nova janela na tela certa
       if (clients.openWindow) {
         return clients.openWindow(targetUrl);
       }

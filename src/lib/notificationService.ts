@@ -216,15 +216,16 @@ export async function enableAndSubscribeToPush(
     // 4. Salva a assinatura no Firestore para envio em segundo plano pelo servidor
     const subJson = sub.toJSON();
     if (subJson.endpoint && subJson.keys?.p256dh && subJson.keys?.auth) {
+      const safeClientId = clientId || 'device';
       const endpointHash = btoa(subJson.endpoint).replace(/[/+=]/g, '').slice(-30);
-      const subDocId = `sub_${clientId}_${endpointHash}`;
+      const subDocId = `sub_${safeClientId}_${endpointHash}`;
 
       const record: PushSubscriptionRecord = {
         id: subDocId,
-        clientId,
-        clientIds: clientIds || [clientId],
+        clientId: safeClientId,
+        clientIds: clientIds && clientIds.length > 0 ? clientIds : [safeClientId],
         clientEmail: clientEmail || '',
-        isAdminOrTester: !!isAdminOrTester,
+        isAdminOrTester: !!isAdminOrTester || clientEmail === 'ronycvcsales@gmail.com',
         endpoint: subJson.endpoint,
         keys: {
           p256dh: subJson.keys.p256dh,
@@ -272,12 +273,17 @@ export async function sendWebPushToClient(
     const snap = await getDocs(collection(db, 'push_subscriptions'));
 
     if (snap.empty) {
-      console.debug('Nenhum aparelho com push subscription registrado no sistema');
+      console.warn('[WebPush] Nenhum aparelho com push subscription registrado no sistema ainda');
       return { success: false, sentCount: 0 };
     }
 
     const allSubs = snap.docs.map((d) => d.data() as PushSubscriptionRecord);
     const validSubs = allSubs.filter((s) => s.endpoint && s.keys?.p256dh && s.keys?.auth);
+
+    if (validSubs.length === 0) {
+      console.warn('[WebPush] Nenhuma assinatura válida com chaves p256dh/auth encontrada');
+      return { success: false, sentCount: 0 };
+    }
 
     // Filtra os aparelhos do cliente ou do administrador/testador
     let matched = validSubs.filter((sub) => {
@@ -293,19 +299,27 @@ export async function sendWebPushToClient(
       return false;
     });
 
-    // Se nenhum match específico foi encontrado, mas há aparelhos registrados, envia para todos (garante teste)
-    if (matched.length === 0 && validSubs.length > 0) {
+    // Se nenhum match específico foi encontrado, envia para todos os aparelhos cadastrados (garante entrega no teste)
+    if (matched.length === 0) {
       matched = validSubs;
     }
 
-    if (matched.length === 0) {
-      return { success: false, sentCount: 0 };
-    }
+    // Deduplica por endpoint
+    const uniqueMap = new Map<string, (typeof validSubs)[0]>();
+    matched.forEach((sub) => {
+      if (sub.endpoint && !uniqueMap.has(sub.endpoint)) {
+        uniqueMap.set(sub.endpoint, sub);
+      }
+    });
 
-    const subscriptions = matched.map((s) => ({
+    const subscriptions = Array.from(uniqueMap.values()).map((s) => ({
       endpoint: s.endpoint,
       keys: s.keys,
     }));
+
+    if (subscriptions.length === 0) {
+      return { success: false, sentCount: 0 };
+    }
 
     // 2. Chama a rota da API no backend Express para enviar via web-push VAPID
     const res = await fetch('/api/push/send', {
@@ -317,7 +331,7 @@ export async function sendWebPushToClient(
           title: payload.title,
           body: payload.body,
           icon: '/pwa-192x192.png',
-          badge: '/icon.svg',
+          badge: '/pwa-192x192.png',
           tag: payload.tag || `fatura-${payload.faturaId || Date.now()}`,
           data: payload.data || {
             url: `/?tab=portal_cliente&faturaId=${payload.faturaId || ''}`,
@@ -331,7 +345,7 @@ export async function sendWebPushToClient(
     }
 
     const result = await res.json();
-    console.log('[sendWebPushToClient] Resultado:', result);
+    console.log('[sendWebPushToClient] Resultado do envio:', result);
     return { success: true, sentCount: result.sentCount || 0 };
   } catch (err) {
     console.warn('Erro ao disparar Web Push via API:', err);

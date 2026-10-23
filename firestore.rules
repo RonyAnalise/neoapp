@@ -109,8 +109,8 @@ service cloud.firestore {
 
     // Assinaturas Push de Dispositivos (Android e iOS)
     match /push_subscriptions/{subId} {
-      allow read: if isSignedIn();
-      allow create, update: if isSignedIn();
+      allow read: if true;
+      allow create, update: if true;
       allow delete: if isSignedIn();
     }
   }

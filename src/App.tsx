@@ -29,7 +29,13 @@ import {
   TaxaCoelba,
   NotificacaoCliente,
 } from './types';
-import { notifyInvoiceIssued } from './lib/notificationService';
+import {
+  notifyInvoiceIssued,
+  enableAndSubscribeToPush,
+  registerPushServiceWorker,
+  getNotificationPermission,
+  NotificationPermissionStatus,
+} from './lib/notificationService';
 import { formatCurrency, formatReferencePeriod } from './lib/calculations';
 
 // Components & Views
@@ -107,6 +113,55 @@ function MainApp() {
   const [viewingFatura, setViewingFatura] = useState<Fatura | null>(null);
   const [selectedBoletoFatura, setSelectedBoletoFatura] = useState<Fatura | null>(null);
   const [prefillClientId, setPrefillClientId] = useState<string | undefined>(undefined);
+
+  // Push Notification State
+  const [pushStatus, setPushStatus] = useState<NotificationPermissionStatus>(() =>
+    getNotificationPermission()
+  );
+  const [pushSubscribed, setPushSubscribed] = useState(false);
+  const [subscribingPush, setSubscribingPush] = useState(false);
+  const [pushBannerDismissed, setPushBannerDismissed] = useState(() => {
+    try {
+      return localStorage.getItem('neo_push_banner_dismissed') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const handleGlobalSubscribePush = async () => {
+    setSubscribingPush(true);
+    try {
+      const isAdm = isAdmin || currentUser?.email === 'ronycvcsales@gmail.com';
+      const cEmail = currentUser?.email || userProfile?.email || '';
+      const cId = userProfile?.clientId || 'device';
+      const res = await enableAndSubscribeToPush(cId, cEmail, [cId], isAdm);
+      if (res.success) {
+        setPushSubscribed(true);
+        setPushStatus('granted');
+      }
+    } catch (e) {
+      console.warn('Erro ao ativar push:', e);
+    } finally {
+      setSubscribingPush(false);
+    }
+  };
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    registerPushServiceWorker().catch(() => {});
+
+    if ('Notification' in window && Notification.permission === 'granted') {
+      const isAdm = isAdmin || currentUser?.email === 'ronycvcsales@gmail.com';
+      const cEmail = currentUser?.email || userProfile?.email || '';
+      const cId = userProfile?.clientId || 'device';
+      enableAndSubscribeToPush(cId, cEmail, [cId], isAdm)
+        .then((res) => {
+          if (res.success) setPushSubscribed(true);
+        })
+        .catch(() => {});
+    }
+  }, [currentUser, userProfile, isAdmin]);
 
   // Synchronization of 38 invoices state
   const [isSyncing, setIsSyncing] = useState(false);
@@ -733,6 +788,44 @@ function MainApp() {
     return (
       <>
         <OfflineIndicator />
+        {pushStatus === 'default' && !pushBannerDismissed && (
+          <div className="bg-gradient-to-r from-emerald-950 via-emerald-900 to-green-950 text-white px-4 py-2.5 text-xs flex flex-wrap items-center justify-between gap-3 shadow-md border-b border-emerald-600/50 shrink-0">
+            <div className="flex items-center gap-2.5">
+              <span className="flex h-7 w-7 items-center justify-center rounded-xl bg-amber-400 text-emerald-950 font-black text-sm shadow-xs animate-bounce">
+                🔔
+              </span>
+              <div>
+                <span className="font-extrabold text-amber-300">Receber Notificações no Celular: </span>
+                <span className="text-emerald-100">
+                  Clique para ativar o recebimento de alertas na barra do celular com som e vibração (mesmo com o app fechado) quando faturas forem emitidas.
+                </span>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={handleGlobalSubscribePush}
+                disabled={subscribingPush}
+                className="bg-amber-400 hover:bg-amber-300 text-emerald-950 font-black px-4 py-1.5 rounded-xl shadow cursor-pointer transition flex items-center gap-1.5 disabled:opacity-50"
+              >
+                {subscribingPush ? 'Ativando...' : '⚡ Ativar Notificações no Celular'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setPushBannerDismissed(true);
+                  try {
+                    localStorage.setItem('neo_push_banner_dismissed', 'true');
+                  } catch {}
+                }}
+                className="text-emerald-300 hover:text-white p-1 cursor-pointer font-bold"
+                title="Fechar aviso"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        )}
         <PortalClienteView
           clientes={clientes}
           faturas={faturas}
@@ -843,6 +936,45 @@ function MainApp() {
 
       {/* Main Content Area */}
       <div className="flex flex-1 flex-col min-w-0 lg:h-screen lg:overflow-y-auto">
+        {pushStatus === 'default' && !pushBannerDismissed && (
+          <div className="bg-gradient-to-r from-emerald-950 via-emerald-900 to-green-950 text-white px-4 py-2.5 text-xs flex flex-wrap items-center justify-between gap-3 shadow-md border-b border-emerald-600/50 shrink-0">
+            <div className="flex items-center gap-2.5">
+              <span className="flex h-7 w-7 items-center justify-center rounded-xl bg-amber-400 text-emerald-950 font-black text-sm shadow-xs animate-bounce">
+                🔔
+              </span>
+              <div>
+                <span className="font-extrabold text-amber-300">Receber Notificações no Celular: </span>
+                <span className="text-emerald-100">
+                  Clique para ativar o recebimento de alertas com som e vibração na barra de notificações quando novas faturas forem lançadas (funciona com o app fechado).
+                </span>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={handleGlobalSubscribePush}
+                disabled={subscribingPush}
+                className="bg-amber-400 hover:bg-amber-300 text-emerald-950 font-black px-4 py-1.5 rounded-xl shadow cursor-pointer transition flex items-center gap-1.5 disabled:opacity-50"
+              >
+                {subscribingPush ? 'Ativando...' : '⚡ Ativar Notificações no Celular'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setPushBannerDismissed(true);
+                  try {
+                    localStorage.setItem('neo_push_banner_dismissed', 'true');
+                  } catch {}
+                }}
+                className="text-emerald-300 hover:text-white p-1 cursor-pointer font-bold"
+                title="Fechar aviso"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        )}
+
         <Header
           title={headerInfo.title}
           subtitle={headerInfo.subtitle}
