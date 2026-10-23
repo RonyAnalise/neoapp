@@ -184,15 +184,40 @@ function MainApp() {
         // 2. Leitura
         batch.set(doc(db, 'leituras', rec.leitura.id), rec.leitura, { merge: true });
 
-        // 3. Fatura
-        batch.set(
-          doc(db, 'faturas', rec.fatura.id),
-          {
-            ...rec.fatura,
-            historicalCompanyData: empresa?.companyName ? empresa : DEFAULT_EMPRESA,
-          },
-          { merge: true }
+        // 3. Fatura: preserva status de pagamento existente se a fatura já foi paga
+        const existingFat = faturas.find((f) => f.id === rec.fatura.id);
+        const hasConfirmedPayment = pagamentos.some(
+          (p) => (p.invoiceId === rec.fatura.id || p.invoiceId === rec.fatura.invoiceNumber) && p.status === 'confirmed'
         );
+
+        if (existingFat) {
+          const isPaid = existingFat.status === 'paid' || hasConfirmedPayment;
+          batch.set(
+            doc(db, 'faturas', rec.fatura.id),
+            {
+              ...rec.fatura,
+              status: isPaid ? 'paid' : existingFat.status,
+              paidAt: existingFat.paidAt || (isPaid ? new Date().toISOString() : undefined),
+              paidBy: existingFat.paidBy || (isPaid ? 'Operador' : undefined),
+              boletoBase64: isPaid ? null : (existingFat.boletoBase64 !== undefined ? existingFat.boletoBase64 : rec.fatura.boletoBase64),
+              boletoFileName: isPaid ? null : (existingFat.boletoFileName !== undefined ? existingFat.boletoFileName : rec.fatura.boletoFileName),
+              historicalCompanyData: empresa?.companyName ? empresa : DEFAULT_EMPRESA,
+            },
+            { merge: true }
+          );
+        } else {
+          batch.set(
+            doc(db, 'faturas', rec.fatura.id),
+            {
+              ...rec.fatura,
+              status: hasConfirmedPayment ? 'paid' : rec.fatura.status,
+              paidAt: hasConfirmedPayment ? new Date().toISOString() : undefined,
+              paidBy: hasConfirmedPayment ? 'Operador' : undefined,
+              historicalCompanyData: empresa?.companyName ? empresa : DEFAULT_EMPRESA,
+            },
+            { merge: true }
+          );
+        }
       }
 
       await batch.commit();
@@ -382,6 +407,83 @@ function MainApp() {
     }
   }, [currentUser, clientes.length]);
 
+  // Reconciliação bi-direcional de integridade entre 'faturas', 'pagamentos' e 'auditoria':
+  // Garante que faturas com pagamento confirmado NUNCA apareçam como pendentes e vice-versa.
+  useEffect(() => {
+    if (!currentUser || faturas.length === 0) return;
+
+    // 1. Mapeia faturas com pagamento confirmado em 'pagamentos' ou no log de auditoria
+    const confirmedPaymentInvoiceIds = new Map<string, { date: string; user: string; amount?: number }>();
+
+    pagamentos.forEach((p) => {
+      if (p.status === 'confirmed' && p.invoiceId) {
+        confirmedPaymentInvoiceIds.set(p.invoiceId, {
+          date: p.paymentDate || p.createdAt || new Date().toISOString(),
+          user: p.confirmedBy || 'Operador',
+          amount: p.amountPaid,
+        });
+      }
+    });
+
+    auditoriaLogs.forEach((log) => {
+      if (log.operationType === 'confirm_payment' && log.relatedDocument) {
+        if (!confirmedPaymentInvoiceIds.has(log.relatedDocument)) {
+          confirmedPaymentInvoiceIds.set(log.relatedDocument, {
+            date: log.timestamp || new Date().toISOString(),
+            user: log.user || 'Operador',
+            amount: (log.newData as any)?.amountPaid,
+          });
+        }
+      }
+    });
+
+    // 2. Se a fatura tem pagamento confirmado mas está como 'pending' ou 'overdue' no banco, restaura para 'paid'
+    faturas.forEach(async (fat) => {
+      const payInfo =
+        confirmedPaymentInvoiceIds.get(fat.id) ||
+        confirmedPaymentInvoiceIds.get(fat.invoiceNumber);
+
+      if (payInfo && fat.status !== 'paid') {
+        try {
+          await updateDoc(doc(db, 'faturas', fat.id), {
+            status: 'paid',
+            paidAt: fat.paidAt || payInfo.date,
+            paidBy: fat.paidBy || payInfo.user,
+            boletoBase64: null,
+            boletoStoragePath: null,
+            paymentPendingDeletion: false,
+          });
+        } catch (err) {
+          console.warn('Erro ao restaurar status de fatura paga:', err);
+        }
+      }
+
+      // 3. Se a fatura está marcada como 'paid' mas ainda NÃO possui doc correspondente em 'pagamentos', cria o registro
+      if (fat.status === 'paid') {
+        const hasPagamentoDoc = pagamentos.some(
+          (p) => (p.invoiceId === fat.id || p.invoiceId === fat.invoiceNumber) && p.status === 'confirmed'
+        );
+        if (!hasPagamentoDoc) {
+          try {
+            const payRef = doc(collection(db, 'pagamentos'));
+            await setDoc(payRef, {
+              invoiceId: fat.id,
+              clientId: fat.clientId,
+              amountPaid: fat.totalToPay,
+              paymentDate: fat.paidAt || new Date().toISOString(),
+              confirmationMethod: 'manual',
+              confirmedBy: fat.paidBy || 'Operador',
+              status: 'confirmed',
+              createdAt: fat.paidAt || new Date().toISOString(),
+            });
+          } catch (err) {
+            console.warn('Erro ao criar registro de pagamento na reconciliação:', err);
+          }
+        }
+      }
+    });
+  }, [currentUser, faturas, pagamentos, auditoriaLogs]);
+
   // Handlers for Firestore actions
   const handleSaveCliente = async (clienteData: Partial<Cliente>, isNew: boolean) => {
     // Sanitização completa para o Firestore (remove propriedades 'undefined' que causam erro na SDK)
@@ -563,8 +665,38 @@ function MainApp() {
 
   const handleUpdateInvoice = async (faturaId: string, updatedData: Partial<Fatura>) => {
     const prevFat = faturas.find((f) => f.id === faturaId);
+    const finalData: Partial<Fatura> = { ...updatedData };
+
+    if (updatedData.status === 'paid' && prevFat?.status !== 'paid') {
+      if (!finalData.paidAt) finalData.paidAt = new Date().toISOString();
+      if (!finalData.paidBy) finalData.paidBy = userProfile?.name || 'Operador';
+      finalData.boletoBase64 = null;
+      finalData.boletoStoragePath = null;
+      finalData.boletoFileName = null;
+      finalData.boletoUploadedAt = null;
+      finalData.paymentPendingDeletion = false;
+
+      // Cria registro em pagamentos se não existir
+      const hasPayment = pagamentos.some(
+        (p) => (p.invoiceId === faturaId || p.invoiceId === prevFat?.invoiceNumber) && p.status === 'confirmed'
+      );
+      if (!hasPayment && prevFat) {
+        const payRef = doc(collection(db, 'pagamentos'));
+        await setDoc(payRef, {
+          invoiceId: faturaId,
+          clientId: prevFat.clientId,
+          amountPaid: updatedData.totalToPay !== undefined ? updatedData.totalToPay : prevFat.totalToPay,
+          paymentDate: finalData.paidAt,
+          confirmationMethod: 'manual',
+          confirmedBy: finalData.paidBy,
+          status: 'confirmed',
+          createdAt: finalData.paidAt,
+        }).catch((e) => console.warn('Erro ao registrar pagamento na edição:', e));
+      }
+    }
+
     await updateDoc(doc(db, 'faturas', faturaId), {
-      ...updatedData,
+      ...finalData,
       updatedAt: new Date().toISOString(),
     });
 
@@ -575,7 +707,7 @@ function MainApp() {
       user: userProfile?.name || 'Operador',
       userEmail: userProfile?.email || '',
       previousData: prevFat || undefined,
-      newData: updatedData,
+      newData: finalData,
       justification: `Edição dos dados da fatura #${prevFat?.invoiceNumber || faturaId}`,
     });
   };
@@ -788,44 +920,6 @@ function MainApp() {
     return (
       <>
         <OfflineIndicator />
-        {pushStatus === 'default' && !pushBannerDismissed && (
-          <div className="bg-gradient-to-r from-emerald-950 via-emerald-900 to-green-950 text-white px-4 py-2.5 text-xs flex flex-wrap items-center justify-between gap-3 shadow-md border-b border-emerald-600/50 shrink-0">
-            <div className="flex items-center gap-2.5">
-              <span className="flex h-7 w-7 items-center justify-center rounded-xl bg-amber-400 text-emerald-950 font-black text-sm shadow-xs animate-bounce">
-                🔔
-              </span>
-              <div>
-                <span className="font-extrabold text-amber-300">Receber Notificações no Celular: </span>
-                <span className="text-emerald-100">
-                  Clique para ativar o recebimento de alertas na barra do celular com som e vibração (mesmo com o app fechado) quando faturas forem emitidas.
-                </span>
-              </div>
-            </div>
-            <div className="flex items-center gap-2 shrink-0">
-              <button
-                type="button"
-                onClick={handleGlobalSubscribePush}
-                disabled={subscribingPush}
-                className="bg-amber-400 hover:bg-amber-300 text-emerald-950 font-black px-4 py-1.5 rounded-xl shadow cursor-pointer transition flex items-center gap-1.5 disabled:opacity-50"
-              >
-                {subscribingPush ? 'Ativando...' : '⚡ Ativar Notificações no Celular'}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setPushBannerDismissed(true);
-                  try {
-                    localStorage.setItem('neo_push_banner_dismissed', 'true');
-                  } catch {}
-                }}
-                className="text-emerald-300 hover:text-white p-1 cursor-pointer font-bold"
-                title="Fechar aviso"
-              >
-                ✕
-              </button>
-            </div>
-          </div>
-        )}
         <PortalClienteView
           clientes={clientes}
           faturas={faturas}
@@ -936,45 +1030,6 @@ function MainApp() {
 
       {/* Main Content Area */}
       <div className="flex flex-1 flex-col min-w-0 lg:h-screen lg:overflow-y-auto">
-        {pushStatus === 'default' && !pushBannerDismissed && (
-          <div className="bg-gradient-to-r from-emerald-950 via-emerald-900 to-green-950 text-white px-4 py-2.5 text-xs flex flex-wrap items-center justify-between gap-3 shadow-md border-b border-emerald-600/50 shrink-0">
-            <div className="flex items-center gap-2.5">
-              <span className="flex h-7 w-7 items-center justify-center rounded-xl bg-amber-400 text-emerald-950 font-black text-sm shadow-xs animate-bounce">
-                🔔
-              </span>
-              <div>
-                <span className="font-extrabold text-amber-300">Receber Notificações no Celular: </span>
-                <span className="text-emerald-100">
-                  Clique para ativar o recebimento de alertas com som e vibração na barra de notificações quando novas faturas forem lançadas (funciona com o app fechado).
-                </span>
-              </div>
-            </div>
-            <div className="flex items-center gap-2 shrink-0">
-              <button
-                type="button"
-                onClick={handleGlobalSubscribePush}
-                disabled={subscribingPush}
-                className="bg-amber-400 hover:bg-amber-300 text-emerald-950 font-black px-4 py-1.5 rounded-xl shadow cursor-pointer transition flex items-center gap-1.5 disabled:opacity-50"
-              >
-                {subscribingPush ? 'Ativando...' : '⚡ Ativar Notificações no Celular'}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setPushBannerDismissed(true);
-                  try {
-                    localStorage.setItem('neo_push_banner_dismissed', 'true');
-                  } catch {}
-                }}
-                className="text-emerald-300 hover:text-white p-1 cursor-pointer font-bold"
-                title="Fechar aviso"
-              >
-                ✕
-              </button>
-            </div>
-          </div>
-        )}
-
         <Header
           title={headerInfo.title}
           subtitle={headerInfo.subtitle}

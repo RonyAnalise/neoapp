@@ -43,9 +43,34 @@ export const PagamentosView: React.FC<PagamentosViewProps> = ({
     }
   };
 
+  // Build list of confirmed payments, supplementing from paid faturas if payment doc is being reconciled
+  const paidFaturas = faturas.filter((f) => f.status === 'paid');
+
+  const allConfirmedPaymentsList = React.useMemo(() => {
+    const list = [...pagamentos];
+    // Adiciona temporariamente faturas marcadas como 'paid' que ainda estão gravando em pagamentos
+    paidFaturas.forEach((fat) => {
+      const exists = list.some((p) => p.invoiceId === fat.id || p.invoiceId === fat.invoiceNumber);
+      if (!exists) {
+        list.push({
+          id: `virtual-${fat.id}`,
+          invoiceId: fat.id,
+          clientId: fat.clientId,
+          amountPaid: fat.totalToPay,
+          paymentDate: fat.paidAt || fat.issueDate || new Date().toISOString(),
+          confirmationMethod: 'manual',
+          confirmedBy: fat.paidBy || 'Operador',
+          status: 'confirmed',
+          createdAt: fat.paidAt || new Date().toISOString(),
+        });
+      }
+    });
+    return list;
+  }, [pagamentos, paidFaturas]);
+
   // Filter confirmed payments
-  const filteredPagamentos = pagamentos.filter((p) => {
-    const fat = faturas.find((f) => f.id === p.invoiceId);
+  const filteredPagamentos = allConfirmedPaymentsList.filter((p) => {
+    const fat = faturas.find((f) => f.id === p.invoiceId || f.invoiceNumber === p.invoiceId);
     const client = clientes.find((c) => c.id === p.clientId || c.id === fat?.clientId);
     const term = searchTerm.toLowerCase();
 
@@ -55,15 +80,19 @@ export const PagamentosView: React.FC<PagamentosViewProps> = ({
     );
   });
 
-  // Filter pending faturas that require payment
+  // Filter pending faturas that require payment (excludes already paid or confirmed)
   const pendingFaturas = faturas.filter(
     (f) =>
-      (f.status === 'pending' || f.status === 'overdue') &&
+      f.status !== 'paid' &&
+      f.status !== 'cancelled' &&
+      !allConfirmedPaymentsList.some(
+        (p) => (p.invoiceId === f.id || p.invoiceId === f.invoiceNumber) && p.status === 'confirmed'
+      ) &&
       ((f.invoiceNumber || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
         (f.clientName || '').toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
-  const totalPaidSum = pagamentos.reduce((acc, p) => acc + (p.amountPaid || 0), 0);
+  const totalPaidSum = allConfirmedPaymentsList.reduce((acc, p) => acc + (p.amountPaid || 0), 0);
   const totalPendingSum = pendingFaturas.reduce((acc, f) => acc + (f.totalToPay || 0), 0);
 
   return (
@@ -79,7 +108,7 @@ export const PagamentosView: React.FC<PagamentosViewProps> = ({
               {formatCurrency(totalPaidSum)}
             </h3>
             <span className="text-[11px] text-emerald-600 font-bold">
-              {pagamentos.length} recebimentos registrados
+              {allConfirmedPaymentsList.length} recebimentos registrados
             </span>
           </div>
           <div className="w-12 h-12 rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center">
@@ -116,7 +145,7 @@ export const PagamentosView: React.FC<PagamentosViewProps> = ({
                 : 'text-gray-600 hover:text-gray-900'
             }`}
           >
-            Pagamentos Confirmados ({pagamentos.length})
+            Pagamentos Confirmados ({allConfirmedPaymentsList.length})
           </button>
           <button
             onClick={() => setTab('pendentes')}

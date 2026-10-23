@@ -78,7 +78,15 @@ export const FaturasView: React.FC<FaturasViewProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | InvoiceStatus>('all');
   const [selectedMonth, setSelectedMonth] = useState<number | 'all'>('all');
-  const [selectedYear, setSelectedYear] = useState<number>(currentYear);
+  const [selectedYear, setSelectedYear] = useState<number | 'all'>('all');
+
+  const availableYears = useMemo(() => {
+    const years = new Set<number>([currentYear - 1, currentYear, currentYear + 1]);
+    faturas.forEach((f) => {
+      if (f.referenceYear) years.add(f.referenceYear);
+    });
+    return Array.from(years).sort((a, b) => b - a);
+  }, [faturas, currentYear]);
 
   // New invoice modal
   const [createModalOpen, setCreateModalOpen] = useState(false);
@@ -567,7 +575,7 @@ export const FaturasView: React.FC<FaturasViewProps> = ({
 
       const matchesStatus = statusFilter === 'all' || f.status === statusFilter;
       const matchesMonth = selectedMonth === 'all' || f.referenceMonth === selectedMonth;
-      const matchesYear = f.referenceYear === selectedYear;
+      const matchesYear = selectedYear === 'all' || f.referenceYear === selectedYear;
 
       return matchesSearch && matchesStatus && matchesMonth && matchesYear;
     })
@@ -578,6 +586,88 @@ export const FaturasView: React.FC<FaturasViewProps> = ({
 
   return (
     <div className="space-y-6">
+      {/* Quick Status Filter Tabs */}
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setStatusFilter('all')}
+          className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
+            statusFilter === 'all'
+              ? 'bg-emerald-800 text-white shadow-xs'
+              : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
+          }`}
+        >
+          <span>Todas as Faturas</span>
+          <span
+            className={`text-[10px] px-1.5 py-0.2 rounded-full ${
+              statusFilter === 'all' ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-600'
+            }`}
+          >
+            {faturas.length}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setStatusFilter('paid')}
+          className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
+            statusFilter === 'paid'
+              ? 'bg-emerald-600 text-white shadow-xs'
+              : 'bg-white text-emerald-800 border border-emerald-200 hover:bg-emerald-50'
+          }`}
+        >
+          <CheckCircle className="w-3.5 h-3.5" />
+          <span>Pagas</span>
+          <span
+            className={`text-[10px] px-1.5 py-0.2 rounded-full font-black ${
+              statusFilter === 'paid' ? 'bg-white/20 text-white' : 'bg-emerald-100 text-emerald-800'
+            }`}
+          >
+            {faturas.filter((f) => f.status === 'paid').length}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setStatusFilter('pending')}
+          className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
+            statusFilter === 'pending'
+              ? 'bg-amber-600 text-white shadow-xs'
+              : 'bg-white text-amber-800 border border-amber-200 hover:bg-amber-50'
+          }`}
+        >
+          <Clock className="w-3.5 h-3.5" />
+          <span>Pendentes</span>
+          <span
+            className={`text-[10px] px-1.5 py-0.2 rounded-full font-black ${
+              statusFilter === 'pending' ? 'bg-white/20 text-white' : 'bg-amber-100 text-amber-800'
+            }`}
+          >
+            {faturas.filter((f) => f.status === 'pending').length}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setStatusFilter('overdue')}
+          className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
+            statusFilter === 'overdue'
+              ? 'bg-rose-600 text-white shadow-xs'
+              : 'bg-white text-rose-800 border border-rose-200 hover:bg-rose-50'
+          }`}
+        >
+          <AlertTriangle className="w-3.5 h-3.5" />
+          <span>Vencidas</span>
+          <span
+            className={`text-[10px] px-1.5 py-0.2 rounded-full font-black ${
+              statusFilter === 'overdue' ? 'bg-white/20 text-white' : 'bg-rose-100 text-rose-800'
+            }`}
+          >
+            {faturas.filter((f) => f.status === 'overdue').length}
+          </span>
+        </button>
+      </div>
+
       {/* Banner de Notificação de Fatura Emitida para o Celular */}
       {issuedNotificationSuccess && (
         <div className="rounded-2xl bg-gradient-to-r from-emerald-800 to-[#0c3319] p-4 text-white shadow-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-in fade-in slide-in-from-top-3">
@@ -675,10 +765,13 @@ export const FaturasView: React.FC<FaturasViewProps> = ({
 
             <select
               value={selectedYear}
-              onChange={(e) => setSelectedYear(Number(e.target.value))}
+              onChange={(e) =>
+                setSelectedYear(e.target.value === 'all' ? 'all' : Number(e.target.value))
+              }
               className="rounded-xl border border-gray-300 bg-gray-50 px-3 py-2 text-xs font-semibold text-gray-900 focus:border-emerald-600 focus:outline-none"
             >
-              {[currentYear - 1, currentYear, currentYear + 1].map((y) => (
+              <option value="all">Todos os Anos</option>
+              {availableYears.map((y) => (
                 <option key={y} value={y}>
                   {y}
                 </option>

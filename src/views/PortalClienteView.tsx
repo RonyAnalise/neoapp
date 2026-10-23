@@ -194,16 +194,17 @@ export const PortalClienteView: React.FC<PortalClienteViewProps> = ({
 
   // Economia no mês mais recente disponível
   const latestFatura = clientFaturas[0];
+  const activeYear = latestFatura ? latestFatura.referenceYear : currentYear;
   const savingsThisMonth = latestFatura ? latestFatura.savingsAmount : 0;
   const neoTotalMonth = latestFatura ? latestFatura.totalToPay : 0;
   const coelbaTotalMonth = latestFatura ? latestFatura.coelbaEstimateAmount : 0;
 
-  // Economia acumulada no ano corrente (em dinheiro R$)
+  // Economia acumulada no ano de referência das faturas (em dinheiro R$)
   const annualSavingsTotal = useMemo(() => {
     return clientFaturas
-      .filter((f) => f.referenceYear === currentYear)
+      .filter((f) => f.referenceYear === activeYear)
       .reduce((acc, f) => acc + (f.savingsAmount || 0), 0);
-  }, [clientFaturas, currentYear]);
+  }, [clientFaturas, activeYear]);
 
   // Economia acumulada de todos os tempos (em dinheiro R$)
   const allTimeSavingsTotal = useMemo(() => {
@@ -213,23 +214,23 @@ export const PortalClienteView: React.FC<PortalClienteViewProps> = ({
   // Consumo anual em kWh
   const annualKwhTotal = useMemo(() => {
     return clientFaturas
-      .filter((f) => f.referenceYear === currentYear)
+      .filter((f) => f.referenceYear === activeYear)
       .reduce((acc, f) => acc + (f.consumptionKwh || 0), 0);
-  }, [clientFaturas, currentYear]);
+  }, [clientFaturas, activeYear]);
 
   // Total pago com Neo Energia no ano
   const annualNeoPaidTotal = useMemo(() => {
     return clientFaturas
-      .filter((f) => f.referenceYear === currentYear)
+      .filter((f) => f.referenceYear === activeYear)
       .reduce((acc, f) => acc + (f.totalToPay || 0), 0);
-  }, [clientFaturas, currentYear]);
+  }, [clientFaturas, activeYear]);
 
   // Total que pagaria na Coelba no ano
   const annualCoelbaEstimateTotal = useMemo(() => {
     return clientFaturas
-      .filter((f) => f.referenceYear === currentYear)
+      .filter((f) => f.referenceYear === activeYear)
       .reduce((acc, f) => acc + (f.coelbaEstimateAmount || 0), 0);
-  }, [clientFaturas, currentYear]);
+  }, [clientFaturas, activeYear]);
 
   // Download do boleto bancário (disponível exclusivamente se tiver arquivo anexado)
   const handleDownloadBoleto = (fat: Fatura) => {
@@ -369,28 +370,8 @@ export const PortalClienteView: React.FC<PortalClienteViewProps> = ({
               </div>
             </div>
 
-            {/* Ações Topo: Notificações, Voltar ao Admin (se aplicável) e Logout */}
+            {/* Ações Topo: Voltar ao Admin (se aplicável) e Logout */}
             <div className="flex flex-wrap items-center gap-2 self-end sm:self-auto">
-              {permissionStatus === 'granted' ? (
-                <div
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-800/90 text-emerald-100 border border-emerald-600 shadow-xs"
-                  title="Notificações no celular ativas"
-                >
-                  <BellRing className="w-3.5 h-3.5 text-yellow-300" />
-                  <span>Notificações Ativas</span>
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  onClick={handleEnableNotifications}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-amber-400 hover:bg-amber-300 text-emerald-950 font-black border border-amber-300 cursor-pointer shadow-xs animate-pulse"
-                  title="Ativar notificações no celular"
-                >
-                  <Bell className="w-3.5 h-3.5" />
-                  <span>Ativar Notificações no Celular</span>
-                </button>
-              )}
-
               {(isAdmin || isOperator) && onBackToAdmin && (
                 <button
                   type="button"
@@ -585,59 +566,39 @@ export const PortalClienteView: React.FC<PortalClienteViewProps> = ({
         {/* 1. ABA DE FATURAS E BOLETOS */}
         {activeTab === 'faturas' && (
           <div className="space-y-6">
-            {/* Card de Notificações no Celular com App Fechado (Android e iOS) */}
-            <div className="bg-white rounded-2xl border border-emerald-200/90 p-4 sm:p-5 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-              <div className="flex items-start gap-3.5">
-                <div
-                  className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 shadow-xs ${
-                    permissionStatus === 'granted'
-                      ? 'bg-emerald-100 text-emerald-800'
-                      : 'bg-amber-100 text-amber-800'
-                  }`}
-                >
-                  <BellRing className={`w-6 h-6 ${permissionStatus === 'granted' ? 'text-emerald-700' : 'text-amber-600 animate-pulse'}`} />
-                </div>
-                <div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h4 className="text-sm font-black text-gray-900">
-                      Notificações no Celular (Android & iOS)
-                    </h4>
-                    {permissionStatus === 'granted' ? (
-                      <span className="bg-emerald-100 text-emerald-800 text-[10px] font-black px-2.5 py-0.5 rounded-full border border-emerald-300 flex items-center gap-1">
-                        <Check className="w-3 h-3 text-emerald-700" />
-                        ATIVADO NA BARRA DO CELULAR
-                      </span>
-                    ) : (
+            {/* Card de Notificações no Celular com App Fechado (Android e iOS) - Exibido apenas até ativar */}
+            {permissionStatus !== 'granted' && (
+              <div className="bg-white rounded-2xl border border-emerald-200/90 p-4 sm:p-5 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                <div className="flex items-start gap-3.5">
+                  <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-800 flex items-center justify-center shrink-0 shadow-xs">
+                    <BellRing className="w-6 h-6 text-amber-600 animate-pulse" />
+                  </div>
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h4 className="text-sm font-black text-gray-900">
+                        Notificações no Celular (Android & iOS)
+                      </h4>
                       <span className="bg-amber-100 text-amber-900 text-[10px] font-black px-2 py-0.5 rounded-full border border-amber-300">
                         APP FECHADO DISPONÍVEL
                       </span>
-                    )}
-                  </div>
-                  <p className="text-xs text-gray-600 mt-1 max-w-2xl">
-                    {permissionStatus === 'granted'
-                      ? '✓ O alerta fica fixado na barra de notificações do celular (status bar / tela de bloqueio) mesmo com o aplicativo fechado até você tocar nele.'
-                      : 'Receba o aviso sonoro e vibratório na barra de notificações do seu celular assim que uma nova fatura for emitida, mesmo se o aplicativo estiver totalmente fechado.'}
-                  </p>
-                  <div className="flex flex-wrap items-center gap-2 mt-2 text-[11px] font-semibold text-gray-500">
-                    <span className="flex items-center gap-1 bg-gray-100 px-2 py-0.5 rounded-lg text-gray-700">
-                      <span>🤖 Android:</span>
-                      <strong className="text-gray-900">Chrome, Edge ou PWA</strong>
-                    </span>
-                    <span className="flex items-center gap-1 bg-gray-100 px-2 py-0.5 rounded-lg text-gray-700">
-                      <span>🍎 iPhone (iOS):</span>
-                      <strong className="text-gray-900">Tela de Início (iOS 16.4+)</strong>
-                    </span>
+                    </div>
+                    <p className="text-xs text-gray-600 mt-1 max-w-2xl">
+                      Receba o aviso sonoro e vibratório na barra de notificações do seu celular assim que uma nova fatura for emitida, mesmo se o aplicativo estiver totalmente fechado.
+                    </p>
+                    <div className="flex flex-wrap items-center gap-2 mt-2 text-[11px] font-semibold text-gray-500">
+                      <span className="flex items-center gap-1 bg-gray-100 px-2 py-0.5 rounded-lg text-gray-700">
+                        <span>🤖 Android:</span>
+                        <strong className="text-gray-900">Chrome, Edge ou PWA</strong>
+                      </span>
+                      <span className="flex items-center gap-1 bg-gray-100 px-2 py-0.5 rounded-lg text-gray-700">
+                        <span>🍎 iPhone (iOS):</span>
+                        <strong className="text-gray-900">Tela de Início (iOS 16.4+)</strong>
+                      </span>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
-                {permissionStatus === 'granted' ? (
-                  <div className="flex items-center gap-2 text-xs font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-3.5 py-2 rounded-xl shadow-xs">
-                    <Check className="w-4 h-4 text-emerald-600" />
-                    <span>Celular Conectado para Receber Faturas</span>
-                  </div>
-                ) : (
+                <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
                   <button
                     type="button"
                     onClick={handleEnableNotifications}
@@ -647,9 +608,9 @@ export const PortalClienteView: React.FC<PortalClienteViewProps> = ({
                     <Bell className="w-4 h-4 text-yellow-300" />
                     <span>Ativar Notificações no Celular</span>
                   </button>
-                )}
+                </div>
               </div>
-            </div>
+            )}
 
             {/* Banner de Boletos / Faturas Pendentes com Ação Rápida */}
             {pendingFaturas.length > 0 && (() => {
@@ -974,7 +935,7 @@ export const PortalClienteView: React.FC<PortalClienteViewProps> = ({
                 <div>
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] font-black uppercase tracking-wider bg-white/20 px-2.5 py-0.5 rounded-full">
-                      ECONOMIA ANUAL ({currentYear})
+                      ECONOMIA ANUAL ({activeYear})
                     </span>
                     <Calendar className="w-5 h-5 text-yellow-200" />
                   </div>
@@ -1015,7 +976,7 @@ export const PortalClienteView: React.FC<PortalClienteViewProps> = ({
               <div className="bg-white rounded-2xl p-5 border border-gray-200 shadow-xs flex flex-col justify-between">
                 <div>
                   <span className="text-[10px] font-black uppercase tracking-wider text-gray-500 bg-gray-100 px-2.5 py-0.5 rounded-full">
-                    BALANÇO EM DINHEIRO NO ANO
+                    BALANÇO EM DINHEIRO NO ANO ({activeYear})
                   </span>
                   <div className="space-y-2 mt-3 text-xs">
                     <div className="flex justify-between items-center text-gray-600">
