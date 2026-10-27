@@ -82,7 +82,6 @@ export const PortalClienteView: React.FC<PortalClienteViewProps> = ({
   const { currentUser, userProfile, logout, isAdmin, isOperator } = useAuth();
   const [activeTab, setActiveTab] = useState<'faturas' | 'economia' | 'cadastro'>('faturas');
   const [faturaFilter, setFaturaFilter] = useState<'todas' | 'pendentes' | 'pagas'>('todas');
-  const [copiedPixId, setCopiedPixId] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
 
   // Estados de Notificações no Celular
@@ -256,13 +255,25 @@ export const PortalClienteView: React.FC<PortalClienteViewProps> = ({
     }
   };
 
-  const handleCopyPix = (fat: Fatura) => {
-    const pixCode =
-      empresa.paymentInstructions ||
-      `Chave PIX: ${empresa.cnpj || '52.184.920/0001-44'} - Neo Energia Carnaúbanos • Fatura: ${fat.invoiceNumber}`;
-    navigator.clipboard.writeText(pixCode);
-    setCopiedPixId(fat.id);
-    setTimeout(() => setCopiedPixId(null), 3000);
+  /**
+   * Constrói o link oficial do WhatsApp da empresa para o cliente solicitar
+   * a chave PIX de pagamento diretamente ao administrador.
+   */
+  const getWhatsAppPixRequestUrl = (fat: Fatura, client?: Cliente): string => {
+    let rawDigits = (empresa.whatsapp || empresa.phone || '77992107440').replace(/\D/g, '');
+    if (!rawDigits) rawDigits = '77992107440';
+    const phoneWithCountry =
+      rawDigits.startsWith('55') && rawDigits.length >= 12 ? rawDigits : `55${rawDigits}`;
+
+    const clientName = client?.name || primaryClient.name;
+    const period = formatReferencePeriod(fat.referenceMonth, fat.referenceYear);
+    const amountStr = formatCurrency(fat.totalToPay);
+    const invoiceNum = fat.invoiceNumber || fat.id.slice(0, 8);
+    const dueStr = formatDateBr(fat.dueDate);
+
+    const message = `Olá! Sou ${clientName}, gostaria de solicitar a chave PIX para efetuar o pagamento da minha fatura:\n\n• Fatura: #${invoiceNum}\n• Referência: ${period}\n• Valor: ${amountStr}\n• Vencimento: ${dueStr}\n\nPor favor, envie a chave PIX para pagamento.`;
+
+    return `https://wa.me/${phoneWithCountry}?text=${encodeURIComponent(message)}`;
   };
 
   // 1. Assina o canal de notificações in-app em tempo real
@@ -703,6 +714,16 @@ export const PortalClienteView: React.FC<PortalClienteViewProps> = ({
                       <FileText className="w-4 h-4" />
                       <span>Visualizar Fatura</span>
                     </button>
+                    <a
+                      href={getWhatsAppPixRequestUrl(pendingFat, primaryClient)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-center gap-1.5 px-4 py-3 rounded-xl bg-[#25D366] hover:bg-[#20ba59] text-white font-bold text-xs transition shadow-md cursor-pointer"
+                      title="Solicitar chave PIX no WhatsApp do administrador para pagamento"
+                    >
+                      <MessageCircle className="w-4 h-4" />
+                      <span>Pedir Chave PIX</span>
+                    </a>
                   </div>
                 </div>
               );
@@ -897,31 +918,15 @@ export const PortalClienteView: React.FC<PortalClienteViewProps> = ({
                           </button>
 
                           {!isPaid && (
-                            <button
-                              type="button"
-                              onClick={() => handleCopyPix(fat)}
-                              className="flex items-center justify-center gap-1 rounded-xl border border-gray-300 bg-white hover:bg-gray-50 py-2 px-2.5 text-xs font-bold text-gray-700 transition cursor-pointer"
-                              title="Copiar dados para pagamento via PIX"
-                            >
-                              {copiedPixId === fat.id ? (
-                                <Check className="w-3.5 h-3.5 text-emerald-600" />
-                              ) : (
-                                <Copy className="w-3.5 h-3.5 text-gray-500" />
-                              )}
-                              <span>{copiedPixId === fat.id ? 'Copiado!' : 'PIX'}</span>
-                            </button>
-                          )}
-
-                          {matchedClient && getWhatsAppNotificationUrl(matchedClient, fat) && (
                             <a
-                              href={getWhatsAppNotificationUrl(matchedClient, fat)!}
+                              href={getWhatsAppPixRequestUrl(fat, matchedClient)}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="flex items-center justify-center gap-1 rounded-xl border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 py-2 px-2.5 text-xs font-bold text-emerald-800 transition cursor-pointer"
-                              title="Receber resumo e link desta fatura no WhatsApp"
+                              className="flex items-center justify-center gap-1.5 rounded-xl bg-[#25D366] hover:bg-[#20ba59] text-white py-2 px-3 text-xs font-bold transition shadow-xs cursor-pointer shrink-0"
+                              title="Solicitar chave PIX ao administrador no WhatsApp para pagar esta fatura"
                             >
-                              <MessageCircle className="w-3.5 h-3.5 text-emerald-700" />
-                              <span className="hidden sm:inline">WhatsApp</span>
+                              <MessageCircle className="w-3.5 h-3.5" />
+                              <span>Pedir Chave PIX</span>
                             </a>
                           )}
                         </div>
