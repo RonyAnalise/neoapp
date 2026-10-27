@@ -28,6 +28,7 @@ import {
   UserRole,
   TaxaCoelba,
   NotificacaoCliente,
+  InvoiceStatus,
 } from './types';
 import {
   notifyInvoiceIssued,
@@ -133,8 +134,17 @@ function MainApp() {
     try {
       const isAdm = isAdmin || currentUser?.email === 'ronycvcsales@gmail.com';
       const cEmail = currentUser?.email || userProfile?.email || '';
-      const cId = userProfile?.clientId || 'device';
-      const res = await enableAndSubscribeToPush(cId, cEmail, [cId], isAdm);
+      const matchedFromEmail = clientes.find((c) => {
+        const normC = (c.email || '').trim().toLowerCase().replace(/y/g, 'i');
+        const normU = cEmail.trim().toLowerCase().replace(/y/g, 'i');
+        return normC && normU && normC === normU;
+      });
+      const cId = userProfile?.clientId || matchedFromEmail?.id || 'device';
+      const allLinkedIds = [cId];
+      if (matchedFromEmail && !allLinkedIds.includes(matchedFromEmail.id)) {
+        allLinkedIds.push(matchedFromEmail.id);
+      }
+      const res = await enableAndSubscribeToPush(cId, cEmail, allLinkedIds, isAdm);
       if (res.success) {
         setPushSubscribed(true);
         setPushStatus('granted');
@@ -154,14 +164,23 @@ function MainApp() {
     if ('Notification' in window && Notification.permission === 'granted') {
       const isAdm = isAdmin || currentUser?.email === 'ronycvcsales@gmail.com';
       const cEmail = currentUser?.email || userProfile?.email || '';
-      const cId = userProfile?.clientId || 'device';
-      enableAndSubscribeToPush(cId, cEmail, [cId], isAdm)
+      const matchedFromEmail = clientes.find((c) => {
+        const normC = (c.email || '').trim().toLowerCase().replace(/y/g, 'i');
+        const normU = cEmail.trim().toLowerCase().replace(/y/g, 'i');
+        return normC && normU && normC === normU;
+      });
+      const cId = userProfile?.clientId || matchedFromEmail?.id || 'device';
+      const allLinkedIds = [cId];
+      if (matchedFromEmail && !allLinkedIds.includes(matchedFromEmail.id)) {
+        allLinkedIds.push(matchedFromEmail.id);
+      }
+      enableAndSubscribeToPush(cId, cEmail, allLinkedIds, isAdm)
         .then((res) => {
           if (res.success) setPushSubscribed(true);
         })
         .catch(() => {});
     }
-  }, [currentUser, userProfile, isAdmin]);
+  }, [currentUser, userProfile, isAdmin, clientes]);
 
   // Synchronization of 38 invoices state
   const [isSyncing, setIsSyncing] = useState(false);
@@ -261,10 +280,21 @@ function MainApp() {
     const unsubFaturas = onSnapshot(
       collection(db, 'faturas'),
       (snap) => {
+        const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
         const list: Fatura[] = [];
         snap.forEach((d) => {
-          const fat = { id: d.id, ...(d.data() as Omit<Fatura, 'id'>) };
-          list.push(fat);
+          const rawFat = { id: d.id, ...(d.data() as Omit<Fatura, 'id'>) };
+          const fat = { ...rawFat };
+
+          // Regra solicitada: quando a data atual for maior que a data de vencimento da fatura,
+          // alterar o status para 'overdue' (vencida) automaticamente
+          if (fat.status === 'pending' && fat.dueDate && todayStr > fat.dueDate) {
+            fat.status = 'overdue';
+            updateDoc(doc(db, 'faturas', d.id), {
+              status: 'overdue',
+              updatedAt: new Date().toISOString(),
+            }).catch(() => {});
+          }
 
           // Regra de integridade: ao mudar o status para 'paid', o boleto é garantidamente apagado do Firebase
           if (fat.status === 'paid' && (fat.boletoBase64 || fat.boletoStoragePath)) {
@@ -276,6 +306,8 @@ function MainApp() {
               paymentPendingDeletion: false,
             }).catch(() => {});
           }
+
+          list.push(fat);
         });
         setFaturas(list);
       },
@@ -481,6 +513,20 @@ function MainApp() {
           }
         }
       }
+
+      // 4. Verificação automática de vencimento de faturas pendentes:
+      // Quando a data atual for maior que a data de vencimento, altera o status para 'overdue' (vencida)
+      const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
+      if (fat.status === 'pending' && fat.dueDate && todayStr > fat.dueDate) {
+        try {
+          await updateDoc(doc(db, 'faturas', fat.id), {
+            status: 'overdue',
+            updatedAt: new Date().toISOString(),
+          });
+        } catch (err) {
+          console.warn(`Erro ao atualizar fatura #${fat.invoiceNumber} para vencida:`, err);
+        }
+      }
     });
   }, [currentUser, faturas, pagamentos, auditoriaLogs]);
 
@@ -588,9 +634,18 @@ function MainApp() {
 
   const handleIssueInvoice = async (invoiceData: Omit<Fatura, 'id' | 'createdAt'>) => {
     const newRef = doc(collection(db, 'faturas'));
+    const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
+    const initialStatus: InvoiceStatus =
+      invoiceData.status === 'paid' || invoiceData.status === 'cancelled'
+        ? invoiceData.status
+        : invoiceData.dueDate && todayStr > invoiceData.dueDate
+        ? 'overdue'
+        : (invoiceData.status || 'pending');
+
     const createdFatura: Fatura = {
       id: newRef.id,
       ...invoiceData,
+      status: initialStatus,
       createdAt: new Date().toISOString(),
     };
     await setDoc(newRef, createdFatura);
@@ -692,6 +747,14 @@ function MainApp() {
           status: 'confirmed',
           createdAt: finalData.paidAt,
         }).catch((e) => console.warn('Erro ao registrar pagamento na edição:', e));
+      }
+    }
+
+    const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
+    const effectiveDueDate = updatedData.dueDate || prevFat?.dueDate;
+    if (finalData.status !== 'paid' && finalData.status !== 'cancelled' && effectiveDueDate) {
+      if (todayStr > effectiveDueDate) {
+        finalData.status = 'overdue';
       }
     }
 

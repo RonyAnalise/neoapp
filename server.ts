@@ -90,6 +90,7 @@ app.post('/api/push/send', async (req: Request, res: Response) => {
       const results = await Promise.allSettled(
         subscriptions.map(async (sub: any) => {
           try {
+            const isAppleEndpoint = typeof sub.endpoint === 'string' && sub.endpoint.includes('apple.com');
             const res = await webpush.sendNotification(
               {
                 endpoint: sub.endpoint,
@@ -99,6 +100,14 @@ app.post('/api/push/send', async (req: Request, res: Response) => {
               {
                 TTL: 60 * 60 * 24 * 7, // 7 dias de retenção
                 urgency: 'high',
+                headers: isAppleEndpoint
+                  ? {
+                      'apns-priority': '10',
+                      'apns-push-type': 'alert',
+                    }
+                  : {
+                      Urgency: 'high',
+                    },
               }
             );
             console.log(
@@ -168,6 +177,57 @@ app.post('/api/push/send', async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * Rotina automática para alterar o status para 'vencida' (overdue) quando a data atual
+ * for maior que a data de vencimento da fatura.
+ */
+async function checkAndUpdateOverdueInvoices(): Promise<number> {
+  try {
+    const { initializeApp, getApps } = await import('firebase/app');
+    const { getFirestore, collection, getDocs, updateDoc, doc } = await import('firebase/firestore');
+    const fs = await import('fs');
+    const cfgPath = path.join(__dirname, 'firebase-applet-config.json');
+    if (!fs.existsSync(cfgPath)) return 0;
+    const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf-8'));
+    const app = getApps().length === 0 ? initializeApp(cfg) : getApps()[0];
+    const db = getFirestore(app, cfg.firestoreDatabaseId);
+
+    const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
+    const snap = await getDocs(collection(db, 'faturas'));
+
+    let updatedCount = 0;
+    for (const d of snap.docs) {
+      const data = d.data();
+      // Se a fatura estiver pendente e a data atual for estritamente maior que o vencimento
+      if (data.status === 'pending' && data.dueDate && todayStr > data.dueDate) {
+        await updateDoc(doc(db, 'faturas', d.id), {
+          status: 'overdue',
+          updatedAt: new Date().toISOString(),
+        }).catch((e: unknown) => {
+          console.warn(`[AutoOverdue] Falha ao atualizar fatura ${d.id}:`, e);
+        });
+        updatedCount++;
+      }
+    }
+
+    if (updatedCount > 0) {
+      console.log(
+        `[AutoOverdue] ${updatedCount} fatura(s) pendente(s) com vencimento expirado atualizada(s) para 'vencida' (Data de hoje: ${todayStr}).`
+      );
+    }
+    return updatedCount;
+  } catch (err) {
+    console.warn('[AutoOverdue] Erro na rotina de verificação de faturas vencidas:', err);
+    return 0;
+  }
+}
+
+// Rota manual / webhook para disparar a checagem a qualquer momento
+app.all('/api/faturas/check-overdue', async (_req: Request, res: Response) => {
+  const count = await checkAndUpdateOverdueInvoices();
+  res.json({ success: true, updatedCount: count });
+});
+
 async function startServer() {
   if (process.env.NODE_ENV === 'production') {
     app.use(express.static(path.join(__dirname, 'dist')));
@@ -185,6 +245,12 @@ async function startServer() {
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server listening on port ${PORT}`);
+    // Executa verificação inicial de faturas vencidas no boot do servidor
+    checkAndUpdateOverdueInvoices().catch(() => {});
+    // Reexecuta periodicamente a cada 30 minutos
+    setInterval(() => {
+      checkAndUpdateOverdueInvoices().catch(() => {});
+    }, 30 * 60 * 1000);
   });
 }
 

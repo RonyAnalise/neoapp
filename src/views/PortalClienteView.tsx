@@ -47,7 +47,6 @@ import { downloadBoletoFile, openBoletoInNewTab } from '../lib/boletoService';
 import {
   getNotificationPermission,
   requestNotificationPermission,
-  notifyInvoiceIssued,
   subscribeToInAppNotifications,
   getWhatsAppNotificationUrl,
   InAppNotificationPayload,
@@ -57,6 +56,7 @@ import {
   isAndroidDevice,
   isStandalonePWA,
   triggerTestMobileNotification,
+  playNotificationSound,
 } from '../lib/notificationService';
 import { useAuth } from '../hooks/useAuth';
 
@@ -300,7 +300,22 @@ export const PortalClienteView: React.FC<PortalClienteViewProps> = ({
       newFaturas.forEach((newFat) => {
         knownInvoiceIdsRef.current.add(newFat.id);
         const matchedCli = clientes.find((c) => c.id === newFat.clientId) || primaryClient;
-        notifyInvoiceIssued(newFat, matchedCli);
+        const period = formatReferencePeriod(newFat.referenceMonth, newFat.referenceYear);
+        const totalStr = formatCurrency(newFat.totalToPay);
+        const savingsStr = formatCurrency(newFat.savingsAmount);
+        const hasBoleto = !!(newFat.boletoBase64 || newFat.boletoStoragePath);
+        setActiveToastNotification({
+          id: `toast-${newFat.id}-${Date.now()}`,
+          title: '⚡ Nova Fatura Lançada — Neo Energia',
+          message: `Sua fatura de ${period} no valor de ${totalStr} foi lançada. Economia de ${savingsStr} calculada!`,
+          timestamp: new Date().toISOString(),
+          faturaId: newFat.id,
+          hasBoleto,
+          totalToPay: newFat.totalToPay,
+          savingsAmount: newFat.savingsAmount,
+          clientName: matchedCli?.name,
+        });
+        playNotificationSound();
       });
     } else {
       faturas.forEach((f) => knownInvoiceIdsRef.current.add(f.id));

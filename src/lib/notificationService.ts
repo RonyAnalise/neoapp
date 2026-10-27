@@ -1,6 +1,6 @@
 import { Fatura, Cliente, PushSubscriptionRecord } from '../types';
 import { formatCurrency, formatReferencePeriod } from './calculations';
-import { collection, doc, setDoc, getDocs, query, where } from 'firebase/firestore';
+import { collection, doc, setDoc, getDocs, getDoc, query, where } from 'firebase/firestore';
 import { db } from './firebase';
 
 export type NotificationPermissionStatus = 'granted' | 'denied' | 'default' | 'unsupported';
@@ -216,21 +216,39 @@ export async function enableAndSubscribeToPush(
     // 4. Salva a assinatura no Firestore para envio em segundo plano pelo servidor
     const subJson = sub.toJSON();
     if (subJson.endpoint && subJson.keys?.p256dh && subJson.keys?.auth) {
-      const safeClientId = clientId || 'device';
+      let safeClientId = clientId || 'device';
       const endpointHash = btoa(subJson.endpoint).replace(/[/+=]/g, '').slice(-30);
-      const subDocId = `sub_${safeClientId}_${endpointHash}`;
+      const subDocId = `sub_${endpointHash}`;
 
-      const isRony =
-        clientEmail === 'ronycvcsales@gmail.com' ||
-        clientEmail === 'rony@gmail.com' ||
-        (clientEmail && clientEmail.toLowerCase().includes('rony'));
+      let normalizedEmail = (clientEmail || '').trim().toLowerCase();
+      let safeClientIds = clientIds && clientIds.length > 0 ? [...clientIds] : [safeClientId];
+
+      // Se clientId for 'device' ou email estiver vazio, preserva o cadastro prévio deste aparelho se já associado
+      try {
+        const existingSnap = await getDoc(doc(db, 'push_subscriptions', subDocId));
+        if (existingSnap.exists()) {
+          const oldData = existingSnap.data() as PushSubscriptionRecord;
+          if ((!safeClientId || safeClientId === 'device') && oldData.clientId && oldData.clientId !== 'device') {
+            safeClientId = oldData.clientId;
+          }
+          if (!normalizedEmail && oldData.clientEmail) {
+            normalizedEmail = oldData.clientEmail;
+          }
+          if (Array.isArray(oldData.clientIds) && oldData.clientIds.length > 0) {
+            const merged = new Set([...safeClientIds, ...oldData.clientIds]);
+            safeClientIds = Array.from(merged);
+          }
+        }
+      } catch (errCheck) {
+        console.debug('Verificação de sub existente:', errCheck);
+      }
 
       const record: PushSubscriptionRecord = {
         id: subDocId,
         clientId: safeClientId,
-        clientIds: clientIds && clientIds.length > 0 ? clientIds : [safeClientId],
-        clientEmail: clientEmail || '',
-        isAdminOrTester: !!isAdminOrTester || !!isRony,
+        clientIds: safeClientIds,
+        clientEmail: normalizedEmail,
+        isAdminOrTester: !!isAdminOrTester,
         endpoint: subJson.endpoint,
         keys: {
           p256dh: subJson.keys.p256dh,
@@ -259,8 +277,8 @@ export async function enableAndSubscribeToPush(
 }
 
 /**
- * Envia notificação Web Push direta para os celulares cadastrados do cliente
- * (Disparado pelo servidor para a barra de notificações do celular mesmo com o app fechado)
+ * Envia notificação Web Push direta EXCLUSIVAMENTE para o celular do cliente que recebeu a fatura.
+ * Nenhum outro cliente ou aparelho recebe o alerta da fatura alheia.
  */
 export async function sendWebPushToClient(
   clientId: string,
@@ -274,7 +292,25 @@ export async function sendWebPushToClient(
   clientEmail?: string
 ): Promise<{ success: boolean; sentCount: number }> {
   try {
-    // 1. Busca no Firestore todas as assinaturas push
+    let targetEmail = (clientEmail || '').trim().toLowerCase();
+    const targetClientId = (clientId || '').trim();
+
+    // Se o targetEmail não foi passado, busca no documento do cliente em 'clientes'
+    if (!targetEmail && targetClientId) {
+      try {
+        const clientSnap = await getDoc(doc(db, 'clientes', targetClientId));
+        if (clientSnap.exists()) {
+          const cData = clientSnap.data();
+          if (cData.email) {
+            targetEmail = String(cData.email).trim().toLowerCase();
+          }
+        }
+      } catch (errCli) {
+        console.warn('Erro ao buscar email do cliente em clientes:', errCli);
+      }
+    }
+
+    // 1. Busca no Firestore todas as assinaturas push registradas
     const snap = await getDocs(collection(db, 'push_subscriptions'));
 
     if (snap.empty) {
@@ -290,30 +326,42 @@ export async function sendWebPushToClient(
       return { success: false, sentCount: 0 };
     }
 
-    // Filtra os aparelhos do cliente ou do administrador/testador (sempre inclui administradores e o aparelho do desenvolvedor/gestor)
-    let matched = validSubs.filter((sub) => {
-      if (sub.isAdminOrTester) return true;
-      if (
-        sub.clientEmail &&
-        (sub.clientEmail === 'ronycvcsales@gmail.com' ||
-          sub.clientEmail === 'rony@gmail.com' ||
-          sub.clientEmail.toLowerCase().includes('rony'))
-      )
+    // Filtra EXCLUSIVAMENTE os aparelhos do cliente da fatura (por email ou por ID do cliente/medidor)
+    const matched = validSubs.filter((sub) => {
+      const subEmail = (sub.clientEmail || '').trim().toLowerCase();
+
+      // 1. Match pelo e-mail da conta do cliente que está logado no aparelho
+      if (targetEmail && subEmail) {
+        if (subEmail === targetEmail) return true;
+        // Normalização flexível para roni/rony no mesmo domínio
+        const normTarget = targetEmail.replace(/y/g, 'i');
+        const normSub = subEmail.replace(/y/g, 'i');
+        if (normTarget === normSub) return true;
+      }
+
+      // 2. Match pelo ID do cliente
+      if (targetClientId && sub.clientId && sub.clientId === targetClientId) {
         return true;
-      if (sub.clientId === clientId) return true;
-      if (sub.clientIds && sub.clientIds.includes(clientId)) return true;
+      }
+
+      // 3. Match por lista de medidores/UCs vinculados ao cadastro do cliente
       if (
-        clientEmail &&
-        sub.clientEmail &&
-        sub.clientEmail.toLowerCase() === clientEmail.toLowerCase()
-      )
+        targetClientId &&
+        Array.isArray(sub.clientIds) &&
+        sub.clientIds.includes(targetClientId)
+      ) {
         return true;
+      }
+
       return false;
     });
 
-    // Se nenhum match específico foi encontrado, envia para todos os aparelhos cadastrados (garante entrega no teste)
+    // Se nenhum aparelho específico deste cliente estiver cadastrado, NÃO notifica outros celulares!
     if (matched.length === 0) {
-      matched = validSubs;
+      console.log(
+        `[WebPush] Nenhum celular conectado especificamente para o cliente ${targetClientId} (${targetEmail || 'sem email'}). Nenhum outro aparelho foi notificado.`
+      );
+      return { success: true, sentCount: 0 };
     }
 
     // Deduplica por endpoint
@@ -514,28 +562,21 @@ export async function notifyInvoiceIssued(
     clientName,
   });
 
-  // 2. Dispara notificação nativa com som e vibração (se permitido neste aparelho)
-  await triggerMobileNotification(title, {
-    body,
-    tag: `fatura-${fatura.id}`,
-    vibratePattern: [300, 150, 300, 150, 450],
-    data: {
+  // 2. Envia Web Push EXCLUSIVAMENTE para o celular do cliente da fatura (com app fechado)
+  await sendWebPushToClient(
+    fatura.clientId,
+    {
+      title,
+      body,
       faturaId: fatura.id,
-      url: `${typeof window !== 'undefined' ? window.location.origin : ''}/?tab=portal_cliente`,
+      tag: `fatura-${fatura.id}`,
+      data: {
+        faturaId: fatura.id,
+        url: `${typeof window !== 'undefined' ? window.location.origin : ''}/?tab=portal_cliente`,
+      },
     },
-  });
-
-  // 3. Envia Web Push para entrega na barra do celular com o APP FECHADO
-  await sendWebPushToClient(fatura.clientId, {
-    title,
-    body,
-    faturaId: fatura.id,
-    tag: `fatura-${fatura.id}`,
-    data: {
-      faturaId: fatura.id,
-      url: `${typeof window !== 'undefined' ? window.location.origin : ''}/?tab=portal_cliente`,
-    },
-  }, client?.email);
+    client?.email
+  );
 }
 
 /**

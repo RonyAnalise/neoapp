@@ -29,7 +29,6 @@ self.addEventListener('push', (event) => {
   const body = data.body || 'Sua fatura foi emitida e está disponível no Portal do Cliente.';
   const origin = self.location.origin;
 
-  // Imagens com URLs absolutas garantem que o sistema operacional encontre o ícone mesmo em segundo plano
   const iconUrl = data.icon
     ? (data.icon.startsWith('http') ? data.icon : `${origin}${data.icon.startsWith('/') ? '' : '/'}${data.icon}`)
     : `${origin}/pwa-192x192.png`;
@@ -39,45 +38,64 @@ self.addEventListener('push', (event) => {
     url: `${origin}/?tab=portal_cliente${data.faturaId ? `&faturaId=${data.faturaId}` : ''}`,
   };
 
-  // Monta opções seguras compatíveis com Android e iOS (sem propriedades que quebram o WebKit no iOS)
-  const isApple = typeof navigator !== 'undefined' && /iphone|ipad|ipod|mac/i.test(navigator.userAgent || '');
+  // Detecção precisa de iOS (iPhone, iPad, macOS WebKit)
+  const isApple = (() => {
+    try {
+      const ua = (typeof navigator !== 'undefined' && navigator.userAgent) || '';
+      const platform = (typeof navigator !== 'undefined' && navigator.platform) || '';
+      return /iphone|ipad|ipod|macintosh|mac os x/i.test(ua) || /iphone|ipad|ipod|mac/i.test(platform);
+    } catch {
+      return false;
+    }
+  })();
 
+  // No iOS (WebKit / APNs): opções devem ser enxutas para exibição imediata na tela de bloqueio
+  // iOS não aceita strings de URL em badge nem array de vibração em NotificationOptions
   const options = {
     body,
-    icon: iconUrl,
-    badge: badgeUrl,
     tag: data.tag || `neo-fatura-${Date.now()}`,
     data: notificationData,
   };
 
-  // No Android, adiciona suporte a vibração personalizada
+  // No Android e Desktop (Chrome, Edge, Samsung Internet), adiciona ícone, badge e vibração
   if (!isApple) {
+    options.icon = iconUrl;
+    options.badge = badgeUrl;
     options.vibrate = [300, 100, 300, 100, 450];
     options.renotify = true;
   }
 
-  // Executa showNotification com fallback em cascata para garantir que a barra do celular sempre receba o alerta
-  event.waitUntil(
-    self.registration
-      .showNotification(title, options)
-      .catch((err) => {
-        console.warn('[SW Push] Fallback nível 1 para notificação:', err);
-        return self.registration.showNotification(title, {
-          body,
-          icon: `${origin}/pwa-192x192.png`,
-          data: notificationData,
-        });
-      })
-      .catch((err2) => {
-        console.warn('[SW Push] Fallback nível 2 com payload básico:', err2);
-        return self.registration.showNotification(title, { body });
-      })
-  );
+  // Atualiza o contador de badge do aplicativo na Tela de Início (suportado no iOS 16.4+ e Android)
+  const badgePromise =
+    self.navigator && typeof self.navigator.setAppBadge === 'function'
+      ? self.navigator.setAppBadge(1).catch(() => {})
+      : Promise.resolve();
+
+  // Executa showNotification com fallback garantido para a tela do celular acender
+  const notificationPromise = self.registration
+    .showNotification(title, options)
+    .catch((err) => {
+      console.warn('[SW Push] Fallback para notificação simplificada:', err);
+      return self.registration.showNotification(title, {
+        body,
+        data: notificationData,
+      });
+    })
+    .catch((err2) => {
+      console.warn('[SW Push] Fallback emergencial:', err2);
+      return self.registration.showNotification(title, { body });
+    });
+
+  event.waitUntil(Promise.all([notificationPromise, badgePromise]));
 });
 
 // Evento de clique na notificação da barra do celular
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
+
+  if (self.navigator && typeof self.navigator.clearAppBadge === 'function') {
+    self.navigator.clearAppBadge().catch(() => {});
+  }
 
   const origin = self.location.origin;
   const targetUrl =
