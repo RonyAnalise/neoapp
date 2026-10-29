@@ -262,8 +262,19 @@ app.post('/api/meter/read', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Dados da imagem corrompidos ou em formato inválido.' });
     }
 
+    const specificApiKey = (process.env.CUSTOM_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '').trim();
+
+    if (!specificApiKey) {
+      console.warn('[Gemini OCR] GEMINI_API_KEY não encontrada no ambiente de execução.');
+      return res.status(503).json({
+        success: false,
+        isApiKeyMissing: true,
+        error: 'Chave da API Gemini não configurada no ambiente.',
+        details: 'A chave da API Gemini não foi vinculada nas configurações de segredos (Secrets) do ambiente publicado. Você pode digitar a leitura diretamente no campo manual abaixo para continuar sem interrupção.',
+      });
+    }
+
     const { GoogleGenAI, Type } = await import('@google/genai');
-    const specificApiKey = process.env.CUSTOM_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
 
     const ai = new GoogleGenAI({
       apiKey: specificApiKey,
