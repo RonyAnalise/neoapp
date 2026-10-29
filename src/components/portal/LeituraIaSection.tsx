@@ -145,6 +145,7 @@ export const LeituraIaSection: React.FC<LeituraIaSectionProps> = ({
   // Estados de Imagem e IA
   const [photoBase64, setPhotoBase64] = useState<string | null>(null);
   const [photoFileName, setPhotoFileName] = useState<string>('');
+  const [photoMimeType, setPhotoMimeType] = useState<string>('image/jpeg');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
 
@@ -202,31 +203,19 @@ export const LeituraIaSection: React.FC<LeituraIaSectionProps> = ({
     return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(d);
   }, [paymentDueDays]);
 
-  // Upload e Análise da Foto com a IA
-  const handlePhotoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
+  // Executa ou reexecuta a análise de IA sobre a foto
+  const analyzeImage = async (base64: string, mime: string) => {
     setAnalysisError(null);
-    setGenerationSuccess(null);
     setIsAnalyzing(true);
-    setIdentifiedReading(null);
-    setManualReadingInput('');
-    setAiConfidence(null);
-    setAiNotes(null);
 
     try {
-      setPhotoFileName(file.name);
-      const { base64, mimeType } = await compressImageForOcr(file);
-      setPhotoBase64(base64);
-
-      // Envia para o endpoint do servidor com Gemini 3.8 Flash
+      // Envia para o endpoint do servidor com fallback inteligente de modelos
       const res = await fetch('/api/meter/read', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           imageBase64: base64,
-          mimeType,
+          mimeType: mime,
         }),
       });
 
@@ -237,13 +226,13 @@ export const LeituraIaSection: React.FC<LeituraIaSectionProps> = ({
 
       const { readingValue, meterNumber, confidence, notes } = json.data || {};
 
-      if (typeof readingValue === 'number') {
+      if (typeof readingValue === 'number' && !isNaN(readingValue)) {
         setIdentifiedReading(readingValue);
         setManualReadingInput(String(readingValue));
       } else {
         setAnalysisError(
           notes ||
-            'A Inteligência Artificial não conseguiu identificar claramente o visor do medidor. Por favor, confira o valor ou digite manualmente.'
+            'Não conseguimos extrair o número com total certeza. Por favor, confira o visor na foto e digite ou ajuste a leitura no campo abaixo.'
         );
       }
 
@@ -253,10 +242,28 @@ export const LeituraIaSection: React.FC<LeituraIaSectionProps> = ({
     } catch (err: unknown) {
       console.error('Erro na análise da foto:', err);
       setAnalysisError(
-        'Não foi possível analisar a imagem automaticamente. Você pode digitar os dígitos do medidor manualmente.'
+        'A análise automática encontrou uma instabilidade temporária. Você pode digitar os dígitos do medidor diretamente no campo abaixo ou clicar para tentar novamente.'
       );
     } finally {
       setIsAnalyzing(false);
+    }
+  };
+
+  // Upload e Análise da Foto com a IA
+  const handlePhotoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setGenerationSuccess(null);
+    try {
+      setPhotoFileName(file.name);
+      const { base64, mimeType } = await compressImageForOcr(file);
+      setPhotoBase64(base64);
+      setPhotoMimeType(mimeType);
+      await analyzeImage(base64, mimeType);
+    } catch (err: unknown) {
+      console.error('Erro ao compactar imagem:', err);
+      setAnalysisError('Falha ao processar imagem da foto. Tente selecionar novamente.');
     }
   };
 
@@ -637,25 +644,37 @@ export const LeituraIaSection: React.FC<LeituraIaSectionProps> = ({
                 </div>
               )}
 
-              {/* Mensagem de Erro na Análise */}
+              {/* Mensagem de Erro/Aviso na Análise */}
               {analysisError && (
-                <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-start gap-2">
-                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-                  <div>
-                    <strong className="font-bold block">Aviso na leitura:</strong>
-                    <span>{analysisError}</span>
+                <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex flex-col gap-2">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                    <div>
+                      <strong className="font-bold block">Aviso na leitura:</strong>
+                      <span>{analysisError}</span>
+                    </div>
                   </div>
+                  {photoBase64 && !isAnalyzing && (
+                    <button
+                      type="button"
+                      onClick={() => analyzeImage(photoBase64, photoMimeType)}
+                      className="self-start inline-flex items-center gap-1.5 px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg font-bold text-[11px] transition cursor-pointer shadow-xs"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>Tentar Ler Foto com IA Novamente</span>
+                    </button>
+                  )}
                 </div>
               )}
 
-              {/* Leitura Identificada pela IA */}
-              {identifiedReading !== null && (
-                <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-300 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-black text-emerald-900 uppercase flex items-center gap-1">
-                      <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
-                      Leitura Identificada pela IA:
-                    </span>
+              {/* Campo de Leitura Atual (Preenchido por IA ou Digitação Manual) */}
+              <div className="p-4 rounded-2xl bg-emerald-50/70 border-2 border-emerald-500/80 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-black text-gray-900 uppercase flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-emerald-700" />
+                    <span>Leitura Atual do Medidor (kWh) *</span>
+                  </label>
+                  {identifiedReading !== null ? (
                     <span
                       className={`text-[10px] font-black px-2 py-0.5 rounded-full uppercase ${
                         aiConfidence === 'high'
@@ -663,37 +682,63 @@ export const LeituraIaSection: React.FC<LeituraIaSectionProps> = ({
                           : 'bg-amber-500 text-white'
                       }`}
                     >
-                      {aiConfidence === 'high' ? 'Alta Confiança' : 'Confiança Média'}
+                      {aiConfidence === 'high' ? '✓ Identificado pela IA' : '✓ IA (Conferir)'}
                     </span>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <div className="relative flex-1">
-                      <input
-                        type="text"
-                        value={manualReadingInput}
-                        onChange={(e) => setManualReadingInput(e.target.value)}
-                        placeholder="Ex: 12450"
-                        className="w-full px-3 py-2 text-lg font-black text-gray-900 bg-white border border-emerald-400 rounded-xl focus:ring-2 focus:ring-emerald-600 focus:outline-hidden"
-                      />
-                      <span className="absolute right-3 top-2.5 text-xs font-bold text-gray-500">
-                        kWh
-                      </span>
-                    </div>
-                  </div>
-
-                  {aiNotes && (
-                    <p className="text-[11px] text-emerald-800/90 leading-tight">
-                      💬 {aiNotes}
-                    </p>
-                  )}
-                  {identifiedMeterNumber && (
-                    <p className="text-[11px] text-gray-600">
-                      Nº do medidor visualizado: <strong>{identifiedMeterNumber}</strong>
-                    </p>
+                  ) : (
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-gray-200 text-gray-700 uppercase">
+                      Digitação Manual
+                    </span>
                   )}
                 </div>
-              )}
+
+                <div className="relative">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={manualReadingInput}
+                    onChange={(e) => setManualReadingInput(e.target.value)}
+                    placeholder="Digite os números do medidor (Ex: 15921)"
+                    className="w-full px-3.5 py-2.5 text-lg font-black text-emerald-950 bg-white border-2 border-emerald-400 rounded-xl focus:ring-2 focus:ring-emerald-600 focus:outline-hidden placeholder:text-gray-400 placeholder:text-xs placeholder:font-normal"
+                  />
+                  <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-black text-emerald-800 bg-emerald-100 px-2 py-1 rounded-md">
+                    kWh
+                  </span>
+                </div>
+
+                <div className="text-[11px] text-gray-600 leading-snug">
+                  {identifiedReading !== null ? (
+                    <span>
+                      A IA identificou <strong>{identifiedReading} kWh</strong> na fotografia. Você pode confirmar ou corrigir o número acima se necessário.
+                    </span>
+                  ) : (
+                    <span>
+                      Digite o valor numérico que aparece no visor do medidor. O cálculo do consumo e economia será atualizado instantaneamente no Passo 3.
+                    </span>
+                  )}
+                </div>
+
+                {photoBase64 && identifiedReading !== null && !isAnalyzing && (
+                  <button
+                    type="button"
+                    onClick={() => analyzeImage(photoBase64, photoMimeType)}
+                    className="w-full py-1.5 px-3 rounded-lg bg-white hover:bg-emerald-100 text-emerald-900 border border-emerald-300 text-[11px] font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
+                  >
+                    <RotateCcw className="w-3 h-3 text-emerald-700" />
+                    <span>Reanalisar Foto com a IA</span>
+                  </button>
+                )}
+
+                {aiNotes && (
+                  <p className="text-[11px] text-emerald-900/90 bg-white/80 p-2 rounded-xl border border-emerald-200 leading-tight">
+                    💬 <strong>Observação da IA:</strong> {aiNotes}
+                  </p>
+                )}
+                {identifiedMeterNumber && (
+                  <p className="text-[11px] text-gray-700 bg-white/80 px-2.5 py-1.5 rounded-xl border border-emerald-200 font-mono">
+                    Nº de série visualizado: <strong>{identifiedMeterNumber}</strong>
+                  </p>
+                )}
+              </div>
             </div>
           </div>
 
