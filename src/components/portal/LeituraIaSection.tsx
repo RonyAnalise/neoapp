@@ -219,9 +219,14 @@ export const LeituraIaSection: React.FC<LeituraIaSectionProps> = ({
         }),
       });
 
-      const json = await res.json();
+      const json = await res.json().catch(() => ({}));
       if (!res.ok || !json.success) {
-        throw new Error(json.error || 'Falha ao processar leitura do medidor');
+        if (json.isApiKeyMissing) {
+          throw new Error(
+            'A chave da API Gemini não está vinculada nesta versão publicada do app. Você pode digitar os dígitos do medidor diretamente no campo abaixo para emitir a fatura normalmente!'
+          );
+        }
+        throw new Error(json.details || json.error || 'Falha ao processar leitura do medidor');
       }
 
       const { readingValue, meterNumber, confidence, notes } = json.data || {};
@@ -241,9 +246,11 @@ export const LeituraIaSection: React.FC<LeituraIaSectionProps> = ({
       if (meterNumber) setIdentifiedMeterNumber(meterNumber);
     } catch (err: unknown) {
       console.error('Erro na análise da foto:', err);
-      setAnalysisError(
-        'A análise automática encontrou uma instabilidade temporária. Você pode digitar os dígitos do medidor diretamente no campo abaixo ou clicar para tentar novamente.'
-      );
+      const errMsg =
+        err instanceof Error
+          ? err.message
+          : 'A análise automática encontrou uma instabilidade temporária. Você pode digitar os dígitos do medidor diretamente no campo abaixo ou clicar para tentar novamente.';
+      setAnalysisError(errMsg);
     } finally {
       setIsAnalyzing(false);
     }
