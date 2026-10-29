@@ -988,6 +988,10 @@ function MainApp() {
           faturas={faturas}
           leituras={leituras}
           empresa={empresa}
+          tariffs={tariffs}
+          taxasCoelba={taxasCoelba}
+          onIssueInvoice={handleIssueInvoice}
+          onRegisterReading={handleRegisterReading}
           onOpenInvoiceModal={(fat) => setViewingFatura(fat)}
         />
         {viewingFatura && (
@@ -1320,6 +1324,10 @@ function MainApp() {
                 faturas={faturas}
                 leituras={leituras}
                 empresa={empresa}
+                tariffs={tariffs}
+                taxasCoelba={taxasCoelba}
+                onIssueInvoice={handleIssueInvoice}
+                onRegisterReading={handleRegisterReading}
                 overrideClientId={portalOverrideClientId || (clientes[0]?.id || undefined)}
                 onOpenInvoiceModal={(fat) => setViewingFatura(fat)}
                 onBackToAdmin={() => setActiveTab('dashboard')}

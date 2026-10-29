@@ -15,43 +15,51 @@ service cloud.firestore {
       );
     }
 
+    function isOperator() {
+      return isSignedIn() && (
+        isAdmin() ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'operator')
+      );
+    }
+
     function isValidId(id) {
       return id is string && id.size() > 0 && id.size() <= 128;
     }
 
-    // Default deny
+    // Default deny catch-all: Bloqueia qualquer rota não mapeada explicitamente
     match /{document=**} {
       allow read, write: if false;
     }
 
-    // Admins index
+    // Admins: Somente super administradores podem gerenciar permissões administrativas
     match /admins/{userId} {
-      allow read: if isSignedIn();
+      allow read: if isSignedIn() && (request.auth.uid == userId || isAdmin());
       allow write: if isAdmin();
     }
 
-    // Users
+    // Usuários: Apenas o próprio usuário autenticado ou administradores têm acesso ao perfil
     match /users/{userId} {
-      allow read: if true;
+      allow read: if isSignedIn() && (request.auth.uid == userId || isAdmin());
       allow create: if isSignedIn() && (request.auth.uid == userId || isAdmin());
       allow update: if isSignedIn() && (request.auth.uid == userId || isAdmin());
       allow delete: if isAdmin();
     }
 
-    // Clientes
+    // Clientes: Dados confidenciais de consumidores (CPF/CNPJ, endereços e medidores)
     match /clientes/{clienteId} {
-      allow read: if true;
-      allow create, update: if isSignedIn();
-      allow delete: if isAdmin() || isSignedIn();
+      allow read: if isSignedIn();
+      allow create, update: if isOperator() || isAdmin();
+      allow delete: if isAdmin();
     }
 
-    // Empresa
+    // Empresa: Dados institucionais públicos para validação de faturas
     match /empresa/{empresaId} {
-      allow read: if true; // Permite visualização pública da fatura se compartilhada
+      allow read: if true;
       allow write: if isAdmin();
     }
 
-    // Configurações
+    // Configurações e tarifas do sistema
     match /configuracoes/{configId} {
       allow read: if isSignedIn();
       allow write: if isAdmin();
@@ -63,53 +71,57 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
-    // Leituras
+    // Leituras de medidores (inclusive leituras com fotos e IA)
     match /leituras/{leituraId} {
       allow read: if isSignedIn();
-      allow create, update: if isSignedIn();
-      allow delete: if isAdmin() || isSignedIn();
-    }
-
-    // Faturas
-    match /faturas/{faturaId} {
-      allow read: if true; // Permite visualização por link direto de fatura
       allow create: if isSignedIn();
-      allow update: if isSignedIn() || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt']);
-      allow delete: if isAdmin() || isSignedIn();
+      allow update: if isOperator() || isAdmin() || (isSignedIn() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['meterPhotoBase64', 'meterPhotoDeletedAt', 'updatedAt']));
+      allow delete: if isAdmin();
     }
 
-    // Pagamentos
+    // Faturas: Documentos financeiros de consumo e economia
+    match /faturas/{faturaId} {
+      allow read: if true; // Permite visualização e impressão da fatura via link oficial
+      allow create: if isSignedIn();
+      allow update: if isOperator() || isAdmin() || (isSignedIn() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt', 'meterPhotoBase64', 'meterPhotoDeletedAt']));
+      allow delete: if isAdmin();
+    }
+
+    // Pagamentos: Registros de quitação financeira
     match /pagamentos/{pagamentoId} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn();
+      allow create: if isOperator() || isAdmin();
       allow update: if isAdmin();
       allow delete: if isAdmin();
     }
 
-    // Auditoria
+    // Auditoria: Trilha de auditoria imutável (impossível alterar ou deletar registros)
     match /auditoria/{auditoriaId} {
-      allow read: if true;
-      allow create: if true;
-      allow update, delete: if false; // Auditoria é somente inclusão (imutável)
+      allow read: if isAdmin();
+      allow create: if isSignedIn();
+      allow update, delete: if false;
     }
 
-    // Taxas Coelba (Taxas Quitadas)
+    // Taxas Coelba (Comprovantes de taxas quitadas da concessionária)
     match /taxas_coelba/{taxaId} {
       allow read: if isSignedIn();
-      allow create, update: if isSignedIn();
-      allow delete: if isAdmin() || isSignedIn();
+      allow create, update: if isOperator() || isAdmin();
+      allow delete: if isAdmin();
     }
 
-    // Notificações de Faturas para o Portal do Cliente
+    // Notificações para o Portal do Cliente
     match /notificacoes/{notificacaoId} {
-      allow read, create: if true;
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
       allow update: if isSignedIn();
-      allow delete: if isAdmin() || isSignedIn();
+      allow delete: if isAdmin();
     }
 
-    // Assinaturas Push de Dispositivos (Android e iOS)
+    // Assinaturas Push de Dispositivos (Web Push)
     match /push_subscriptions/{subId} {
-      allow read, write: if true;
+      allow read: if isAdmin();
+      allow create, update: if request.resource.data.endpoint is string && request.resource.data.keys is map;
+      allow delete: if isAdmin() || (isSignedIn() && resource.data.clientId == request.auth.uid);
     }
   }
 }

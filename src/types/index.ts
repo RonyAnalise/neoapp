@@ -91,6 +91,13 @@ export interface Leitura {
   previousReadingRef?: string;
   invoiceId?: string;
   status: ReadingStatus;
+  meterPhotoBase64?: string | null;
+  meterPhotoUploadedAt?: string | null;
+  meterPhotoExpiresAt?: string | null;
+  meterPhotoDeletedAt?: string | null;
+  aiIdentifiedReading?: number;
+  aiConfidence?: string;
+  notes?: string;
   createdAt: string;
   createdBy: string;
 }
@@ -130,6 +137,13 @@ export interface Fatura {
   boletoUploadedAt?: string | null;
   paymentPendingDeletion?: boolean;
   paymentDeletionError?: string;
+  // Foto do medidor guardada por 30 dias (excluída automaticamente após 30 dias)
+  meterPhotoBase64?: string | null;
+  meterPhotoUploadedAt?: string | null;
+  meterPhotoExpiresAt?: string | null;
+  meterPhotoDeletedAt?: string | null;
+  aiIdentifiedReading?: number;
+  aiConfidence?: string;
   // Metadata
   createdAt: string;
   createdBy: string;

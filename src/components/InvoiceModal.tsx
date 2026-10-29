@@ -1,7 +1,8 @@
-import React, { useRef } from 'react';
-import { X, Printer, FileText } from 'lucide-react';
+import React, { useRef, useState } from 'react';
+import { X, Printer, FileText, Camera, Clock, ShieldCheck } from 'lucide-react';
 import { Fatura, Cliente, EmpresaConfig } from '../types';
 import { InvoiceTemplate } from './InvoiceTemplate';
+import { formatDateBr } from '../lib/calculations';
 
 interface InvoiceModalProps {
   fatura: Fatura | null;
@@ -21,6 +22,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
   onOpenBoleto,
 }) => {
   const invoiceRef = useRef<HTMLDivElement>(null);
+  const [showMeterPhoto, setShowMeterPhoto] = useState(false);
 
   if (!fatura || !cliente) return null;
 
@@ -59,6 +61,18 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
+            {fatura.meterPhotoBase64 && (
+              <button
+                type="button"
+                onClick={() => setShowMeterPhoto(true)}
+                className="flex items-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-800 hover:bg-emerald-100 transition cursor-pointer"
+                title="Visualizar foto do medidor enviada para cálculo da fatura"
+              >
+                <Camera className="w-3.5 h-3.5 text-emerald-700" />
+                <span>Foto do Medidor</span>
+              </button>
+            )}
+
             {(fatura.boletoBase64 || fatura.boletoStoragePath) && onOpenBoleto && (
               <button
                 onClick={() => onOpenBoleto(fatura)}
@@ -99,6 +113,61 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Modal Visualizador da Foto do Medidor */}
+      {showMeterPhoto && fatura.meterPhotoBase64 && (
+        <div className="fixed inset-0 z-60 bg-black/85 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl max-w-xl w-full overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+            <div className="px-5 py-4 border-b border-gray-200 flex items-center justify-between bg-gray-50">
+              <div>
+                <span className="bg-emerald-700 text-white text-[10px] font-black px-2 py-0.5 rounded-full uppercase">
+                  Foto do Medidor (IA)
+                </span>
+                <h4 className="text-sm font-black text-gray-900 mt-1">
+                  Fatura #{fatura.invoiceNumber} • Leitura: {fatura.currentReading} kWh
+                </h4>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowMeterPhoto(false)}
+                className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-4 bg-gray-950 flex items-center justify-center overflow-auto max-h-[60vh]">
+              <img
+                src={fatura.meterPhotoBase64}
+                alt="Foto do Medidor"
+                className="max-h-[55vh] max-w-full rounded-lg object-contain shadow-lg"
+              />
+            </div>
+
+            <div className="p-4 bg-gray-50 border-t border-gray-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-gray-600">
+              <div className="flex items-center gap-1.5">
+                <Clock className="w-4 h-4 text-emerald-700 shrink-0" />
+                <span>
+                  Retenção de 30 dias (Expira em:{' '}
+                  <strong>
+                    {fatura.meterPhotoExpiresAt
+                      ? formatDateBr(fatura.meterPhotoExpiresAt.split('T')[0])
+                      : '30 dias'}
+                  </strong>
+                  )
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowMeterPhoto(false)}
+                className="w-full sm:w-auto px-4 py-2 rounded-xl bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold transition cursor-pointer"
+              >
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

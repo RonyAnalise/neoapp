@@ -2,6 +2,9 @@ import express, { Request, Response } from 'express';
 import webpush from 'web-push';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -228,6 +231,205 @@ app.all('/api/faturas/check-overdue', async (_req: Request, res: Response) => {
   res.json({ success: true, updatedCount: count });
 });
 
+/**
+ * Endpoint de Leitura com Inteligência Artificial do Medidor de Energia
+ * Utiliza o modelo gemini-3.8-flash com visão computacional para ler o display
+ * e identificar o consumo acumulado em kWh do cliente.
+ */
+app.post('/api/meter/read', async (req: Request, res: Response) => {
+  try {
+    const { imageBase64, mimeType } = req.body;
+    if (!imageBase64 || typeof imageBase64 !== 'string') {
+      return res.status(400).json({ error: 'Nenhuma fotografia do medidor foi informada.' });
+    }
+
+    // Proteção contra Denial of Service e Exaustão de Memória: Limite estrito de 10MB
+    if (imageBase64.length > 10 * 1024 * 1024) {
+      return res.status(413).json({ error: 'A fotografia enviada excede o limite seguro de 10MB.' });
+    }
+
+    const cleanBase64 = imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64;
+    const cleanMime = mimeType || (imageBase64.includes('image/png') ? 'image/png' : 'image/jpeg');
+
+    // Validação estrita de tipos MIME permitidos
+    const allowedMimes = ['image/jpeg', 'image/png', 'image/webp', 'image/heic'];
+    if (!allowedMimes.includes(cleanMime)) {
+      return res.status(400).json({ error: 'Formato de imagem inválido. Formatos suportados: JPEG, PNG, WEBP.' });
+    }
+
+    // Validação estrutural do Base64 para mitigar ataques de injeção de payload
+    if (!/^[A-Za-z0-9+/=]+$/.test(cleanBase64.slice(0, 500))) {
+      return res.status(400).json({ error: 'Dados da imagem corrompidos ou em formato inválido.' });
+    }
+
+    const { GoogleGenAI, Type } = await import('@google/genai');
+    const specificApiKey = process.env.CUSTOM_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
+
+    const ai = new GoogleGenAI({
+      apiKey: specificApiKey,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        },
+      },
+    });
+
+    const promptText = `Você é um leitor óptico especialista em medidores de energia elétrica residenciais e comerciais (padrão concessionárias brasileiras: Coelba, Neoenergia, Enel, Cemig, CPFL, Equatorial, etc.).
+Analise a fotografia do medidor de energia com atenção aos números mostrados no mostrador digital (LCD) ou analógico (ciclômetro com roletes).
+
+Instruções fundamentais:
+1. Extraia o valor numérico principal da leitura acumulada em kWh.
+   - Em mostradores digitais: leia a sequência de dígitos exibida no visor.
+   - Em mostradores analógicos/mecânicos com roletes: leia os números pretos da esquerda para a direita (ignore o último dígito vermelho após a vírgula fracionária, se houver).
+2. Se visível no corpo ou na plaqueta do medidor, extraia o número de série/código do medidor (ex: "Nº 1234567"). Se não estiver nítido, retorne null.
+3. Avalie a certeza da leitura como "high" (excelente nitidez), "medium" (razoável) ou "low" (muito embaçado/duvidoso).
+4. Forneça uma explicação concisa e amigável em português explicando exatamente o que foi visualizado. Se a foto não for de um medidor ou estiver completamente ilegível, informe educadamente o motivo e sugira tirar uma nova foto mais nítida e iluminada.`;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.8-flash',
+      contents: {
+        parts: [
+          {
+            inlineData: {
+              data: cleanBase64,
+              mimeType: cleanMime,
+            },
+          },
+          {
+            text: promptText,
+          },
+        ],
+      },
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            readingValue: {
+              type: Type.NUMBER,
+              description: 'O valor numérico inteiro acumulado em kWh lido no visor do medidor.',
+            },
+            meterNumber: {
+              type: Type.STRING,
+              description: 'O número de série/código do medidor, se visível.',
+            },
+            confidence: {
+              type: Type.STRING,
+              description: 'Grau de confiança da leitura: high, medium ou low.',
+            },
+            notes: {
+              type: Type.STRING,
+              description: 'Explicação amigável em português indicando onde os dígitos foram identificados.',
+            },
+          },
+          required: ['confidence', 'notes'],
+        },
+      },
+    });
+
+    const rawText = response.text || '{}';
+    let parsedData: any = {};
+    try {
+      parsedData = JSON.parse(rawText);
+    } catch {
+      const match = rawText.match(/\{[\s\S]*\}/);
+      if (match) parsedData = JSON.parse(match[0]);
+    }
+
+    return res.json({
+      success: true,
+      data: parsedData,
+    });
+  } catch (error: any) {
+    console.error('[Gemini Meter OCR] Erro ao ler foto do medidor:', error?.message || 'Erro interno');
+    return res.status(500).json({
+      error: 'Falha ao analisar a foto do medidor com a Inteligência Artificial. Por favor, tente novamente.',
+    });
+  }
+});
+
+/**
+ * Rotina automática para excluir fotos de medidores após 30 dias de armazenamento.
+ * Garante a privacidade do cliente e a otimização do banco de dados Firestore.
+ */
+async function cleanupExpiredMeterPhotos(): Promise<number> {
+  try {
+    const { initializeApp, getApps } = await import('firebase/app');
+    const { getFirestore, collection, getDocs, updateDoc, doc } = await import('firebase/firestore');
+    const fs = await import('fs');
+    const cfgPath = path.join(__dirname, 'firebase-applet-config.json');
+    if (!fs.existsSync(cfgPath)) return 0;
+    const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf-8'));
+    const app = getApps().length === 0 ? initializeApp(cfg) : getApps()[0];
+    const db = getFirestore(app, cfg.firestoreDatabaseId);
+
+    const now = new Date();
+    let cleanedCount = 0;
+
+    // 1. Limpa fotos expiradas em 'faturas'
+    const faturasSnap = await getDocs(collection(db, 'faturas'));
+    for (const d of faturasSnap.docs) {
+      const data = d.data();
+      if (data.meterPhotoBase64) {
+        let isExpired = false;
+        if (data.meterPhotoExpiresAt) {
+          isExpired = new Date(data.meterPhotoExpiresAt) <= now;
+        } else if (data.meterPhotoUploadedAt) {
+          const uploaded = new Date(data.meterPhotoUploadedAt).getTime();
+          isExpired = (now.getTime() - uploaded) >= 30 * 24 * 60 * 60 * 1000;
+        }
+        if (isExpired) {
+          await updateDoc(doc(db, 'faturas', d.id), {
+            meterPhotoBase64: null,
+            meterPhotoDeletedAt: now.toISOString(),
+          }).catch((e: unknown) => {
+            console.warn(`[PhotoCleaner] Erro ao remover foto da fatura ${d.id}:`, e);
+          });
+          cleanedCount++;
+        }
+      }
+    }
+
+    // 2. Limpa fotos expiradas em 'leituras'
+    const leiturasSnap = await getDocs(collection(db, 'leituras'));
+    for (const d of leiturasSnap.docs) {
+      const data = d.data();
+      if (data.meterPhotoBase64) {
+        let isExpired = false;
+        if (data.meterPhotoExpiresAt) {
+          isExpired = new Date(data.meterPhotoExpiresAt) <= now;
+        } else if (data.meterPhotoUploadedAt) {
+          const uploaded = new Date(data.meterPhotoUploadedAt).getTime();
+          isExpired = (now.getTime() - uploaded) >= 30 * 24 * 60 * 60 * 1000;
+        }
+        if (isExpired) {
+          await updateDoc(doc(db, 'leituras', d.id), {
+            meterPhotoBase64: null,
+            meterPhotoDeletedAt: now.toISOString(),
+          }).catch((e: unknown) => {
+            console.warn(`[PhotoCleaner] Erro ao remover foto da leitura ${d.id}:`, e);
+          });
+          cleanedCount++;
+        }
+      }
+    }
+
+    if (cleanedCount > 0) {
+      console.log(`[PhotoCleaner] ${cleanedCount} foto(s) de medidores com mais de 30 dias foram excluídas.`);
+    }
+    return cleanedCount;
+  } catch (err) {
+    console.warn('[PhotoCleaner] Erro ao limpar fotos de medidores expiradas:', err);
+    return 0;
+  }
+}
+
+// Endpoint manual para acionar a limpeza de fotos expiradas
+app.all('/api/meter/cleanup-photos', async (_req: Request, res: Response) => {
+  const count = await cleanupExpiredMeterPhotos();
+  res.json({ success: true, cleanedCount: count });
+});
+
 async function startServer() {
   if (process.env.NODE_ENV === 'production') {
     app.use(express.static(path.join(__dirname, 'dist')));
@@ -247,10 +449,18 @@ async function startServer() {
     console.log(`Server listening on port ${PORT}`);
     // Executa verificação inicial de faturas vencidas no boot do servidor
     checkAndUpdateOverdueInvoices().catch(() => {});
-    // Reexecuta periodicamente a cada 30 minutos
+    // Limpa fotos de medidores com mais de 30 dias no boot do servidor
+    cleanupExpiredMeterPhotos().catch(() => {});
+
+    // Reexecuta periodicamente a cada 30 minutos a checagem de vencimento
     setInterval(() => {
       checkAndUpdateOverdueInvoices().catch(() => {});
     }, 30 * 60 * 1000);
+
+    // Reexecuta periodicamente a cada 6 horas a limpeza de fotos expiradas
+    setInterval(() => {
+      cleanupExpiredMeterPhotos().catch(() => {});
+    }, 6 * 60 * 60 * 1000);
   });
 }
 

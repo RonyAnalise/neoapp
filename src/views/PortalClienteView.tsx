@@ -34,8 +34,9 @@ import {
   Share,
   PlusSquare,
   Info,
+  Camera,
 } from 'lucide-react';
-import { Cliente, EmpresaConfig, Fatura, Leitura } from '../types';
+import { Cliente, EmpresaConfig, EnergyTariffs, Fatura, Leitura, TaxaCoelba } from '../types';
 import {
   formatCurrency,
   formatNumberBr,
@@ -48,7 +49,6 @@ import {
   getNotificationPermission,
   requestNotificationPermission,
   subscribeToInAppNotifications,
-  getWhatsAppNotificationUrl,
   InAppNotificationPayload,
   NotificationPermissionStatus,
   enableAndSubscribeToPush,
@@ -59,12 +59,18 @@ import {
   playNotificationSound,
 } from '../lib/notificationService';
 import { useAuth } from '../hooks/useAuth';
+import { LeituraIaSection } from '../components/portal/LeituraIaSection';
+import { TaxasCoelbaClienteSection } from '../components/portal/TaxasCoelbaClienteSection';
 
 interface PortalClienteViewProps {
   clientes: Cliente[];
   faturas: Fatura[];
   leituras: Leitura[];
   empresa: EmpresaConfig;
+  tariffs?: EnergyTariffs;
+  taxasCoelba?: TaxaCoelba[];
+  onIssueInvoice?: (invoiceData: Omit<Fatura, 'id' | 'createdAt'>) => Promise<void>;
+  onRegisterReading?: (readingData: Omit<Leitura, 'id' | 'createdAt'>) => Promise<void>;
   onOpenInvoiceModal: (fatura: Fatura) => void;
   overrideClientId?: string;
   onBackToAdmin?: () => void;
@@ -75,12 +81,16 @@ export const PortalClienteView: React.FC<PortalClienteViewProps> = ({
   faturas,
   leituras,
   empresa,
+  tariffs,
+  taxasCoelba = [],
+  onIssueInvoice,
+  onRegisterReading,
   onOpenInvoiceModal,
   overrideClientId,
   onBackToAdmin,
 }) => {
   const { currentUser, userProfile, logout, isAdmin, isOperator } = useAuth();
-  const [activeTab, setActiveTab] = useState<'faturas' | 'economia' | 'cadastro'>('faturas');
+  const [activeTab, setActiveTab] = useState<'faturas' | 'leitura_ia' | 'taxas_coelba' | 'economia' | 'cadastro'>('faturas');
   const [faturaFilter, setFaturaFilter] = useState<'todas' | 'pendentes' | 'pagas'>('todas');
   const [downloadError, setDownloadError] = useState<string | null>(null);
 
@@ -547,7 +557,7 @@ export const PortalClienteView: React.FC<PortalClienteViewProps> = ({
       {/* Navegação Principal em Abas */}
       <nav className="bg-white border-b border-gray-200 sticky top-0 z-20 shadow-xs">
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
-          <div className="flex gap-2 sm:gap-6 overflow-x-auto py-2">
+          <div className="flex gap-2 sm:gap-4 overflow-x-auto py-2">
             <button
               type="button"
               onClick={() => setActiveTab('faturas')}
@@ -568,6 +578,35 @@ export const PortalClienteView: React.FC<PortalClienteViewProps> = ({
 
             <button
               type="button"
+              onClick={() => setActiveTab('leitura_ia')}
+              className={`flex items-center gap-2 py-2 px-3 sm:px-4 rounded-xl text-xs sm:text-sm font-black transition cursor-pointer shrink-0 ${
+                activeTab === 'leitura_ia'
+                  ? 'bg-emerald-700 text-white shadow-xs'
+                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+              }`}
+            >
+              <Camera className="w-4 h-4 text-emerald-600" />
+              <span>Leitura com Foto & IA</span>
+              <span className="bg-yellow-400 text-emerald-950 text-[10px] font-black px-1.5 py-0.2 rounded-full">
+                NOVO
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab('taxas_coelba')}
+              className={`flex items-center gap-2 py-2 px-3 sm:px-4 rounded-xl text-xs sm:text-sm font-black transition cursor-pointer shrink-0 ${
+                activeTab === 'taxas_coelba'
+                  ? 'bg-emerald-700 text-white shadow-xs'
+                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+              }`}
+            >
+              <FileCheck2 className="w-4 h-4 text-emerald-600" />
+              <span>Taxas Coelba Pagas</span>
+            </button>
+
+            <button
+              type="button"
               onClick={() => setActiveTab('economia')}
               className={`flex items-center gap-2 py-2 px-3 sm:px-4 rounded-xl text-xs sm:text-sm font-black transition cursor-pointer shrink-0 ${
                 activeTab === 'economia'
@@ -576,7 +615,7 @@ export const PortalClienteView: React.FC<PortalClienteViewProps> = ({
               }`}
             >
               <DollarSign className="w-4 h-4 text-yellow-500" />
-              <span>Minha Economia em Dinheiro (R$)</span>
+              <span>Minha Economia (R$)</span>
             </button>
 
             <button
@@ -652,6 +691,37 @@ export const PortalClienteView: React.FC<PortalClienteViewProps> = ({
                 </div>
               </div>
             )}
+
+            {/* CTA Rápido para Leitura com Foto e IA */}
+            <div className="rounded-2xl p-4 sm:p-5 bg-gradient-to-r from-emerald-900 via-emerald-800 to-emerald-900 text-white shadow-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border border-emerald-700">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-yellow-400 text-emerald-950 flex items-center justify-center shrink-0 shadow-xs">
+                  <Camera className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-black uppercase tracking-wider bg-white/20 px-2 py-0.5 rounded-full">
+                      CÁLCULO AUTOMÁTICO
+                    </span>
+                    <span className="text-xs text-yellow-300 font-bold">Inteligência Artificial</span>
+                  </div>
+                  <h4 className="text-sm font-black text-white mt-1">
+                    Tirar Foto do Medidor para Gerar a Fatura Atual
+                  </h4>
+                  <p className="text-xs text-emerald-100 mt-0.5">
+                    A IA lê o display, compara com sua última fatura e calcula o consumo e economia em segundos.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveTab('leitura_ia')}
+                className="px-4 py-2.5 rounded-xl bg-yellow-400 hover:bg-yellow-300 text-emerald-950 font-black text-xs transition shadow-md flex items-center gap-2 cursor-pointer shrink-0"
+              >
+                <Sparkles className="w-4 h-4 text-emerald-950" />
+                <span>Tirar Foto Agora</span>
+              </button>
+            </div>
 
             {/* Banner de Boletos / Faturas Pendentes com Ação Rápida */}
             {pendingFaturas.length > 0 && (() => {
@@ -937,6 +1007,35 @@ export const PortalClienteView: React.FC<PortalClienteViewProps> = ({
               </div>
             )}
           </div>
+        )}
+
+        {/* ABA: LEITURA DO MEDIDOR COM FOTO & IA */}
+        {activeTab === 'leitura_ia' && (
+          <LeituraIaSection
+            linkedClients={linkedClients}
+            selectedMeterId={selectedMeterId}
+            onSelectMeterId={setSelectedMeterId}
+            faturas={faturas}
+            leituras={leituras}
+            tariffs={tariffs}
+            empresa={empresa}
+            onIssueInvoice={onIssueInvoice}
+            onRegisterReading={onRegisterReading}
+            onInvoiceCreatedSuccess={(fat) => {
+              if (fat) onOpenInvoiceModal(fat);
+            }}
+          />
+        )}
+
+        {/* ABA: HISTÓRICO DE TAXAS DA COELBA PAGAS PELA NEO ENERGIA */}
+        {activeTab === 'taxas_coelba' && (
+          <TaxasCoelbaClienteSection
+            linkedClients={linkedClients}
+            selectedMeterId={selectedMeterId}
+            onSelectMeterId={setSelectedMeterId}
+            taxasCoelba={taxasCoelba}
+            empresa={empresa}
+          />
         )}
 
         {/* 2. ABA DE ECONOMIA EM DINHEIRO (ANUAL E MENSAL) */}
