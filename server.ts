@@ -285,47 +285,65 @@ Instruções fundamentais:
 3. Avalie a certeza da leitura como "high" (excelente nitidez), "medium" (razoável) ou "low" (muito embaçado/duvidoso).
 4. Forneça uma explicação concisa e amigável em português explicando exatamente o que foi visualizado. Se a foto não for de um medidor ou estiver completamente ilegível, informe educadamente o motivo e sugira tirar uma nova foto mais nítida e iluminada.`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
-      contents: {
-        parts: [
-          {
-            inlineData: {
-              data: cleanBase64,
-              mimeType: cleanMime,
+    const modelsToTry = ['gemini-3.8-flash', 'gemini-3.1-flash-lite'];
+    let lastError: any = null;
+    let response: any = null;
+
+    for (const modelName of modelsToTry) {
+      try {
+        response = await ai.models.generateContent({
+          model: modelName,
+          contents: {
+            parts: [
+              {
+                inlineData: {
+                  data: cleanBase64,
+                  mimeType: cleanMime,
+                },
+              },
+              {
+                text: promptText,
+              },
+            ],
+          },
+          config: {
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                readingValue: {
+                  type: Type.NUMBER,
+                  description: 'O valor numérico inteiro acumulado em kWh lido no visor do medidor.',
+                },
+                meterNumber: {
+                  type: Type.STRING,
+                  description: 'O número de série/código do medidor, se visível.',
+                },
+                confidence: {
+                  type: Type.STRING,
+                  description: 'Grau de confiança da leitura: high, medium ou low.',
+                },
+                notes: {
+                  type: Type.STRING,
+                  description: 'Explicação amigável em português indicando onde os dígitos foram identificados.',
+                },
+              },
+              required: ['confidence', 'notes'],
             },
           },
-          {
-            text: promptText,
-          },
-        ],
-      },
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            readingValue: {
-              type: Type.NUMBER,
-              description: 'O valor numérico inteiro acumulado em kWh lido no visor do medidor.',
-            },
-            meterNumber: {
-              type: Type.STRING,
-              description: 'O número de série/código do medidor, se visível.',
-            },
-            confidence: {
-              type: Type.STRING,
-              description: 'Grau de confiança da leitura: high, medium ou low.',
-            },
-            notes: {
-              type: Type.STRING,
-              description: 'Explicação amigável em português indicando onde os dígitos foram identificados.',
-            },
-          },
-          required: ['confidence', 'notes'],
-        },
-      },
-    });
+        });
+        if (response && response.text) {
+          break;
+        }
+      } catch (err: any) {
+        lastError = err;
+        console.warn(`[Gemini OCR] Tentativa com modelo ${modelName} falhou (${err?.message}). Tentando próximo modelo...`);
+      }
+    }
+
+    if (!response || !response.text) {
+      throw lastError || new Error('Não foi possível obter resposta dos modelos de visão.');
+    }
 
     const rawText = response.text || '{}';
     let parsedData: any = {};
@@ -344,6 +362,7 @@ Instruções fundamentais:
     console.error('[Gemini Meter OCR] Erro ao ler foto do medidor:', error?.message || 'Erro interno');
     return res.status(500).json({
       error: 'Falha ao analisar a foto do medidor com a Inteligência Artificial. Por favor, tente novamente.',
+      details: error?.message || String(error),
     });
   }
 });
