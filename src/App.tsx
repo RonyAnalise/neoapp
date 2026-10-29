@@ -15,6 +15,7 @@ import { ref, deleteObject } from 'firebase/storage';
 import { db, storage } from './lib/firebase';
 import { handleFirestoreError, OperationType } from './lib/firestoreErrors';
 import { logAuditEvent } from './lib/auditService';
+import { sanitizeForFirestore } from './lib/cleanFirestore';
 import { AuthProvider, useAuth } from './hooks/useAuth';
 import {
   Cliente,
@@ -919,21 +920,26 @@ function MainApp() {
     try {
       const id = 'taxa_' + Date.now();
       const now = new Date().toISOString();
-      const newTaxa: TaxaCoelba = {
+      const rawTaxa: Record<string, any> = {
         ...taxaData,
         id,
         status: 'quitada',
         createdAt: now,
         createdBy: currentUser?.email || 'operador',
+        observacoes: taxaData.observacoes || '',
+        descricao: taxaData.descricao || 'Taxa Coelba Quitada',
       };
-      await setDoc(doc(db, 'taxas_coelba', id), newTaxa);
+
+      const sanitizedTaxa = sanitizeForFirestore(rawTaxa);
+
+      await setDoc(doc(db, 'taxas_coelba', id), sanitizedTaxa);
       await logAuditEvent({
         operationType: 'register_taxa_coelba',
         collectionName: 'taxas_coelba',
         relatedDocument: id,
         user: currentUser?.displayName || currentUser?.email || 'operador',
         userEmail: currentUser?.email || '',
-        newData: { clientName: taxaData.clientName, data: taxaData.data, valor: taxaData.valor },
+        newData: { clientName: taxaData.clientName, data: taxaData.data, valor: taxaData.valor ?? null },
         justification: `Cadastro de taxa quitada Coelba para o cliente ${taxaData.clientName}`,
       });
     } catch (err) {

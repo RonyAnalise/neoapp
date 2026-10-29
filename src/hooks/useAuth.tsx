@@ -13,6 +13,7 @@ import { doc, getDoc, setDoc, query, where, getDocs, collection } from 'firebase
 import { auth, db } from '../lib/firebase';
 import firebaseConfig from '../../firebase-applet-config.json';
 import { UserProfile, UserRole } from '../types';
+import { sanitizeForFirestore } from '../lib/cleanFirestore';
 
 interface AuthContextType {
   currentUser: User | null;
@@ -104,7 +105,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               createdAt: new Date().toISOString(),
               lastLoginAt: new Date().toISOString(),
             };
-            await setDoc(userDocRef, newProfile);
+            await setDoc(userDocRef, sanitizeForFirestore(newProfile));
             if (newProfile.role === 'admin') {
               await setDoc(doc(db, 'admins', user.uid), { active: true, email: user.email }, { merge: true });
             }
@@ -257,7 +258,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         createdAt: new Date().toISOString(),
       };
 
-      await setDoc(doc(db, 'users', cred.user.uid), newProfile);
+      await setDoc(doc(db, 'users', cred.user.uid), sanitizeForFirestore(newProfile));
       await fbSignOut(secondaryAuth);
     } catch (err: unknown) {
       const errObj = err as { code?: string };

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   FileCheck2,
   Plus,
@@ -10,6 +10,7 @@ import {
   Trash2,
   UploadCloud,
   CheckCircle2,
+  Check,
   X,
   AlertCircle,
   FileImage,
@@ -124,18 +125,51 @@ export const TaxasCoelbaView: React.FC<TaxasCoelbaViewProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Clientes ativos ordenados por nome
-  const activeClientes = [...clientes].sort((a, b) => a.name.localeCompare(b.name));
+  // Normalização de texto: remove acentos, espaços extras e transforma em minúsculas
+  const normalizeSearch = (str: string | null | undefined): string => {
+    if (!str) return '';
+    return str
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .trim();
+  };
 
-  // Clientes filtrados na busca do dropdown
-  const filteredClientOptions = activeClientes.filter((c) => {
-    const q = clientSearchInput.toLowerCase();
-    return (
-      c.name.toLowerCase().includes(q) ||
-      (c.clientCodeCoelba || '').toLowerCase().includes(q) ||
-      (c.cpfCnpj || '').replace(/\D/g, '').includes(q.replace(/\D/g, ''))
-    );
-  });
+  // Clientes ativos ordenados por nome
+  const activeClientes = useMemo(
+    () => [...clientes].sort((a, b) => a.name.localeCompare(b.name)),
+    [clientes]
+  );
+
+  // Clientes filtrados na busca do dropdown (busca instantânea em tempo real)
+  const filteredClientOptions = useMemo(() => {
+    const rawQuery = clientSearchInput.trim();
+    if (!rawQuery) {
+      return activeClientes;
+    }
+
+    const normQuery = normalizeSearch(rawQuery);
+    const digitsOnlyQuery = rawQuery.replace(/\D/g, '');
+
+    return activeClientes.filter((c) => {
+      const normName = normalizeSearch(c.name);
+      const normUnit = normalizeSearch(c.consumerUnit);
+      const normCity = normalizeSearch(c.city);
+      const codeCoelba = normalizeSearch(c.clientCodeCoelba);
+      const cleanCpfCnpj = (c.cpfCnpj || '').replace(/\D/g, '');
+
+      const matchesText =
+        normName.includes(normQuery) ||
+        normUnit.includes(normQuery) ||
+        normCity.includes(normQuery) ||
+        codeCoelba.includes(normQuery);
+
+      const matchesDigits =
+        digitsOnlyQuery.length >= 2 && cleanCpfCnpj.includes(digitsOnlyQuery);
+
+      return matchesText || matchesDigits;
+    });
+  }, [activeClientes, clientSearchInput]);
 
   // Handler: Selecionar cliente na lista -> atualiza código Coelba automaticamente
   const handleSelectClient = (client: Cliente) => {
@@ -261,7 +295,7 @@ export const TaxasCoelbaView: React.FC<TaxasCoelbaViewProps> = ({
         data: dataTaxa,
         valor: isNaN(parsedValor as number) ? undefined : parsedValor,
         descricao: descricaoInput.trim() || 'Taxa Quitada Coelba',
-        observacoes: observacoesInput.trim() || undefined,
+        observacoes: observacoesInput.trim() || '',
         comprovanteBase64: imageBase64,
         comprovanteFileName: imageFileName || `Comprovante_${finalClientName.replace(/\s+/g, '_')}_${dataTaxa}.jpg`,
         comprovanteFileType: imageFile?.type || 'image/jpeg',
@@ -324,17 +358,24 @@ export const TaxasCoelbaView: React.FC<TaxasCoelbaViewProps> = ({
         if (!item.data.startsWith(currentYearStr)) return false;
       }
 
-      // Filtro de busca textual
-      const q = searchTerm.toLowerCase();
+      // Filtro de busca textual normalizada
+      const q = normalizeSearch(searchTerm);
       if (!q) return true;
 
+      const normClient = normalizeSearch(item.clientName);
+      const normCode = normalizeSearch(item.clientCodeCoelba);
+      const normDesc = normalizeSearch(item.descricao);
+      const normObs = normalizeSearch(item.observacoes);
+      const dateRaw = item.data || '';
+      const dateFormatted = formatDateBr(item.data);
+
       return (
-        item.clientName.toLowerCase().includes(q) ||
-        (item.clientCodeCoelba || '').toLowerCase().includes(q) ||
-        (item.descricao || '').toLowerCase().includes(q) ||
-        (item.observacoes || '').toLowerCase().includes(q) ||
-        item.data.includes(q) ||
-        formatDateBr(item.data).includes(q)
+        normClient.includes(q) ||
+        normCode.includes(q) ||
+        normDesc.includes(q) ||
+        normObs.includes(q) ||
+        dateRaw.includes(searchTerm.trim()) ||
+        dateFormatted.includes(searchTerm.trim())
       );
     })
     .sort((a, b) => b.data.localeCompare(a.data));
@@ -741,6 +782,7 @@ export const TaxasCoelbaView: React.FC<TaxasCoelbaViewProps> = ({
                       value={clientSearchInput}
                       onChange={(e) => {
                         setClientSearchInput(e.target.value);
+                        setSelectedClientId('');
                         setIsClientDropdownOpen(true);
                       }}
                       onFocus={() => setIsClientDropdownOpen(true)}
@@ -764,31 +806,60 @@ export const TaxasCoelbaView: React.FC<TaxasCoelbaViewProps> = ({
 
                   {/* Dropdown Lista de Clientes */}
                   {isClientDropdownOpen && (
-                    <div className="absolute z-30 left-0 right-0 mt-1 max-h-56 overflow-y-auto rounded-2xl bg-white border border-gray-200 shadow-xl divide-y divide-gray-100">
+                    <div className="absolute z-30 left-0 right-0 mt-1 max-h-60 overflow-y-auto rounded-2xl bg-white border border-gray-200 shadow-xl divide-y divide-gray-100">
                       {filteredClientOptions.length === 0 ? (
-                        <div className="p-3 text-xs text-gray-500 text-center">
-                          Nenhum cliente encontrado com esse nome.
+                        <div className="p-4 text-center">
+                          <p className="text-xs font-bold text-gray-700">
+                            Nenhum cliente cadastrado com "{clientSearchInput}".
+                          </p>
+                          <p className="text-[11px] text-gray-500 mt-1">
+                            Você pode usar este nome digitado diretamente para a taxa:
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedClientId('');
+                              setIsClientDropdownOpen(false);
+                            }}
+                            className="mt-2.5 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition shadow-xs cursor-pointer"
+                          >
+                            <Check className="w-3.5 h-3.5" /> Usar "{clientSearchInput}"
+                          </button>
                         </div>
                       ) : (
-                        filteredClientOptions.map((c) => (
-                          <div
-                            key={c.id}
-                            onClick={() => handleSelectClient(c)}
-                            className={`p-2.5 px-3.5 hover:bg-emerald-50 transition cursor-pointer flex items-center justify-between ${
-                              selectedClientId === c.id ? 'bg-emerald-50/80 font-bold text-emerald-900' : ''
-                            }`}
-                          >
-                            <div>
-                              <div className="text-xs font-bold text-gray-900">{c.name}</div>
-                              <div className="text-[10px] text-gray-500 font-mono">
-                                Cód. Coelba: {c.clientCodeCoelba || 'Sem código'}
-                              </div>
-                            </div>
-                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
-                              Selecionar
+                        <>
+                          <div className="px-3 py-1.5 bg-gray-50 text-[10px] font-bold text-gray-500 uppercase tracking-wider flex items-center justify-between sticky top-0 border-b border-gray-100">
+                            <span>
+                              {clientSearchInput.trim()
+                                ? `${filteredClientOptions.length} resultado(s) para "${clientSearchInput}"`
+                                : `Todos os clientes (${filteredClientOptions.length})`}
+                            </span>
+                            <span className="text-[10px] text-emerald-700 font-semibold">
+                              Clique para vincular
                             </span>
                           </div>
-                        ))
+                          {filteredClientOptions.map((c) => (
+                            <div
+                              key={c.id}
+                              onClick={() => handleSelectClient(c)}
+                              className={`p-2.5 px-3.5 hover:bg-emerald-50 transition cursor-pointer flex items-center justify-between ${
+                                selectedClientId === c.id ? 'bg-emerald-50/80 font-bold text-emerald-900' : ''
+                              }`}
+                            >
+                              <div className="min-w-0 pr-2">
+                                <div className="text-xs font-bold text-gray-900 truncate">{c.name}</div>
+                                <div className="text-[10px] text-gray-500 font-mono truncate">
+                                  Cód. Coelba: {c.clientCodeCoelba || 'Sem código'}
+                                  {c.consumerUnit ? ` • ${c.consumerUnit}` : ''}
+                                  {c.city ? ` • ${c.city}` : ''}
+                                </div>
+                              </div>
+                              <span className="shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 hover:bg-emerald-200">
+                                Selecionar
+                              </span>
+                            </div>
+                          ))}
+                        </>
                       )}
                     </div>
                   )}

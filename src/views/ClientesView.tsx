@@ -106,15 +106,40 @@ export const ClientesView: React.FC<ClientesViewProps> = ({
   // Extract unique cities for filtering
   const uniqueCities = Array.from(new Set(clientes.map((c) => c.city).filter(Boolean)));
 
+  // Helper de busca normalizada (sem acentos)
+  const normalize = (val: string | null | undefined) =>
+    (val || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .trim();
+
   // Filter clients
   const filteredClientes = clientes.filter((c) => {
-    const term = searchTerm.toLowerCase();
+    const rawTerm = searchTerm.trim();
+    if (!rawTerm) {
+      const matchesStatus = statusFilter === 'all' || c.status === statusFilter;
+      const matchesCity = cityFilter === 'all' || c.city === cityFilter;
+      return matchesStatus && matchesCity;
+    }
+
+    const term = normalize(rawTerm);
+    const digitsTerm = rawTerm.replace(/\D/g, '');
+
+    const name = normalize(c.name);
+    const code = normalize(c.clientCodeCoelba);
+    const city = normalize(c.city);
+    const uc = normalize(c.consumerUnit);
+
+    const cleanCpf = (c.cpfCnpj || '').replace(/\D/g, '');
+    const cleanPhone = (c.phone || '').replace(/\D/g, '');
+
     const matchesSearch =
-      c.name.toLowerCase().includes(term) ||
-      c.cpfCnpj.toLowerCase().includes(term) ||
-      c.phone.toLowerCase().includes(term) ||
-      c.clientCodeCoelba.toLowerCase().includes(term) ||
-      c.city.toLowerCase().includes(term);
+      name.includes(term) ||
+      code.includes(term) ||
+      city.includes(term) ||
+      uc.includes(term) ||
+      (digitsTerm.length >= 2 && (cleanCpf.includes(digitsTerm) || cleanPhone.includes(digitsTerm)));
 
     const matchesStatus = statusFilter === 'all' || c.status === statusFilter;
     const matchesCity = cityFilter === 'all' || c.city === cityFilter;
