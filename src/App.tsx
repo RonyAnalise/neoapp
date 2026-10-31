@@ -191,6 +191,7 @@ function MainApp() {
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'success' | 'error'>('idle');
   const [syncMessage, setSyncMessage] = useState<string>('');
   const autoSyncAttemptedRef = useRef(false);
+  const confirmingPaymentIdsRef = useRef<Set<string>>(new Set());
 
   const syncAllSeedInvoices = async (force = false) => {
     if (isSyncing && !force) return;
@@ -719,50 +720,143 @@ function MainApp() {
 
   // Confirm payment with mandatory automatic deletion of boleto PDF from Firebase Storage
   const handleConfirmPayment = async (faturaId: string, amount: number) => {
-    const fat = faturas.find((f) => f.id === faturaId);
-    if (!fat) return;
-
-    // 1. Delete PDF from Storage if attached
-    if (fat.boletoStoragePath) {
-      try {
-        const fileRef = ref(storage, fat.boletoStoragePath);
-        await deleteObject(fileRef).catch((e) =>
-          console.warn('File already deleted or missing from storage:', e)
-        );
-      } catch (e) {
-        console.error('Falha na exclusão do boleto:', e);
-        // Mark pending technical retry if deletion failed
-        await updateDoc(doc(db, 'faturas', faturaId), {
-          paymentPendingDeletion: true,
-          paymentDeletionError: String(e),
-        });
-      }
+    // 0. Trava de concorrência síncrona: impede que cliques múltiplos gerem pagamentos duplicados
+    if (confirmingPaymentIdsRef.current.has(faturaId)) {
+      console.warn(`[handleConfirmPayment] Pagamento para a fatura ${faturaId} já está em processamento.`);
+      return;
     }
+    confirmingPaymentIdsRef.current.add(faturaId);
 
-    // 2. Mark invoice as paid and completely wipe boleto from database
-    await updateDoc(doc(db, 'faturas', faturaId), {
-      status: 'paid',
-      paidAt: new Date().toISOString(),
-      paidBy: userProfile?.name || 'Operador',
-      boletoBase64: null,
-      boletoStoragePath: null,
-      boletoFileName: null,
-      boletoUploadedAt: null,
-      paymentPendingDeletion: false,
-    });
+    try {
+      const fat = faturas.find((f) => f.id === faturaId || f.invoiceNumber === faturaId);
+      if (!fat) return;
 
-    // 3. Register payment record in pagamentos collection
-    const payRef = doc(collection(db, 'pagamentos'));
-    await setDoc(payRef, {
-      invoiceId: faturaId,
-      clientId: fat.clientId,
-      amountPaid: amount,
-      paymentDate: new Date().toISOString(),
-      confirmationMethod: 'manual',
-      confirmedBy: userProfile?.name || 'Operador',
-      status: 'confirmed',
-      createdAt: new Date().toISOString(),
-    });
+      const targetDocId = fat.id;
+      const nowIso = new Date().toISOString();
+      const userName = userProfile?.name || 'Administrador Neo Energia';
+
+      // Verifica se a fatura já possui pagamento confirmado no estado local
+      const hasExistingPayment = pagamentos.some(
+        (p) => (p.invoiceId === targetDocId || (fat.invoiceNumber && p.invoiceId === fat.invoiceNumber)) && p.status === 'confirmed'
+      );
+      if (fat.status === 'paid' && hasExistingPayment) {
+        console.warn(`[handleConfirmPayment] Fatura #${fat.invoiceNumber} já possui pagamento registrado. Operação ignorada.`);
+        return;
+      }
+
+      // ID determinístico único por fatura: elimina 100% de risco de duplicatas no Firestore
+      const deterministicPayDocId = `pay_${targetDocId}`;
+
+      // 1. Atualização Otimista no React (feedback instantâneo)
+      setFaturas((prev) =>
+        prev.map((f) =>
+          f.id === targetDocId
+            ? {
+                ...f,
+                status: 'paid',
+                paidAt: nowIso,
+                paidBy: userName,
+                boletoBase64: null,
+                boletoStoragePath: null,
+              }
+            : f
+        )
+      );
+
+      setPagamentos((prev) => {
+        // Remove quaisquer registros antigos para esta fatura e insere o único registro confirmado
+        const filtered = prev.filter(
+          (p) => p.invoiceId !== targetDocId && (!fat.invoiceNumber || p.invoiceId !== fat.invoiceNumber)
+        );
+        return [
+          ...filtered,
+          {
+            id: deterministicPayDocId,
+            invoiceId: targetDocId,
+            clientId: fat.clientId,
+            amountPaid: amount,
+            paymentDate: nowIso,
+            confirmationMethod: 'manual',
+            confirmedBy: userName,
+            status: 'confirmed',
+            createdAt: nowIso,
+          },
+        ];
+      });
+
+      // 2. Exclusão do PDF do Storage caso exista
+      if (fat.boletoStoragePath) {
+        try {
+          const fileRef = ref(storage, fat.boletoStoragePath);
+          await deleteObject(fileRef).catch((e) =>
+            console.warn('File already deleted or missing from storage:', e)
+          );
+        } catch (e) {
+          console.error('Falha na exclusão do boleto:', e);
+          await updateDoc(doc(db, 'faturas', targetDocId), {
+            paymentPendingDeletion: true,
+            paymentDeletionError: String(e),
+          }).catch(() => {});
+        }
+      }
+
+      // 3. Marca fatura como Paga no Firestore e expurga boleto
+      await updateDoc(doc(db, 'faturas', targetDocId), {
+        status: 'paid',
+        paidAt: nowIso,
+        paidBy: userName,
+        boletoBase64: null,
+        boletoStoragePath: null,
+        boletoFileName: null,
+        boletoUploadedAt: null,
+        paymentPendingDeletion: false,
+        updatedAt: nowIso,
+      });
+
+      // 4. Grava exatamente UM documento com ID determinístico no Firestore
+      const payRef = doc(db, 'pagamentos', deterministicPayDocId);
+      await setDoc(
+        payRef,
+        {
+          id: deterministicPayDocId,
+          invoiceId: targetDocId,
+          clientId: fat.clientId,
+          amountPaid: amount,
+          paymentDate: nowIso,
+          confirmationMethod: 'manual',
+          confirmedBy: userName,
+          status: 'confirmed',
+          createdAt: nowIso,
+        },
+        { merge: true }
+      );
+
+      // 5. Limpeza de eventuais documentos duplicados legados no Firestore para esta fatura
+      try {
+        const q1 = query(collection(db, 'pagamentos'), where('invoiceId', '==', targetDocId));
+        const snap1 = await getDocs(q1);
+        for (const d of snap1.docs) {
+          if (d.id !== deterministicPayDocId) {
+            await deleteDoc(d.ref).catch(() => {});
+          }
+        }
+        if (fat.invoiceNumber && fat.invoiceNumber !== targetDocId) {
+          const q2 = query(collection(db, 'pagamentos'), where('invoiceId', '==', fat.invoiceNumber));
+          const snap2 = await getDocs(q2);
+          for (const d of snap2.docs) {
+            if (d.id !== deterministicPayDocId) {
+              await deleteDoc(d.ref).catch(() => {});
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('Erro ao expurgar duplicatas antigas:', e);
+      }
+    } finally {
+      setTimeout(() => {
+        confirmingPaymentIdsRef.current.delete(faturaId);
+      }, 1500);
+    }
   };
 
   // Revert payment: unmark invoice as paid and return status to pending
