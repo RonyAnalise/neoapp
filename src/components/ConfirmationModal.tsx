@@ -98,7 +98,7 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
           <button
             onClick={onConfirm}
             disabled={loading || (requireJustification && !justification.trim())}
-            className={`rounded-xl px-4 py-2 text-xs font-bold transition shadow-xs disabled:opacity-50 ${getConfirmStyle()}`}
+            className={`rounded-xl px-4 py-2 text-xs font-bold transition shadow-xs disabled:opacity-50 ${loading ? 'pointer-events-none opacity-60' : 'cursor-pointer'} ${getConfirmStyle()}`}
           >
             {loading ? 'Processando...' : confirmLabel}
           </button>
