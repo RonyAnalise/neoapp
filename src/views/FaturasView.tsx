@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import {
   Receipt,
   Plus,
@@ -518,8 +518,11 @@ export const FaturasView: React.FC<FaturasViewProps> = ({
     setConfirmPaymentOpen(true);
   };
 
+  const processingPaymentRef = useRef(false);
+
   const handleExecutePayment = async () => {
-    if (!payingFatura) return;
+    if (!payingFatura || processingPayment || processingPaymentRef.current) return;
+    processingPaymentRef.current = true;
     setProcessingPayment(true);
     try {
       await onConfirmPayment(payingFatura.id, payingFatura.totalToPay);
@@ -538,10 +541,12 @@ export const FaturasView: React.FC<FaturasViewProps> = ({
       });
 
       setConfirmPaymentOpen(false);
+      setPayingFatura(null);
     } catch (err) {
       alert('Erro ao confirmar pagamento: ' + (err instanceof Error ? err.message : String(err)));
     } finally {
       setProcessingPayment(false);
+      processingPaymentRef.current = false;
     }
   };
 
