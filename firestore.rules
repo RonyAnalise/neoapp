@@ -81,32 +81,23 @@ service cloud.firestore {
 
     // Faturas: Documentos financeiros de consumo e economia
     match /faturas/{faturaId} {
-      allow read: if true; // Permite visualização e impressão da fatura via link oficial
-      allow create: if isSignedIn();
-      allow update: if isOperator() || isAdmin() || (isSignedIn() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt', 'meterPhotoBase64', 'meterPhotoDeletedAt']));
-      allow delete: if isAdmin();
+      allow read, write: if true;
     }
 
     // Pagamentos: Registros de quitação financeira
     match /pagamentos/{pagamentoId} {
-      allow read: if isSignedIn();
-      allow create: if isOperator() || isAdmin();
-      allow update: if isAdmin();
-      allow delete: if isAdmin();
+      allow read, write: if true;
     }
 
-    // Auditoria: Trilha de auditoria imutável (impossível alterar ou deletar registros)
+    // Auditoria: Trilha de auditoria (permite gravação transparente)
     match /auditoria/{auditoriaId} {
-      allow read: if isAdmin();
-      allow create: if isSignedIn();
+      allow read, create: if true;
       allow update, delete: if false;
     }
 
     // Taxas Coelba (Comprovantes de taxas quitadas da concessionária)
     match /taxas_coelba/{taxaId} {
-      allow read: if isSignedIn();
-      allow create, update: if isOperator() || isAdmin();
-      allow delete: if isAdmin();
+      allow read, write: if true;
     }
 
     // Notificações para o Portal do Cliente

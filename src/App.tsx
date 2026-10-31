@@ -669,6 +669,27 @@ function MainApp() {
           createdAt: finalData.paidAt,
         }).catch((e) => console.warn('Erro ao registrar pagamento na edição:', e));
       }
+    } else if (updatedData.status && updatedData.status !== 'paid' && prevFat?.status === 'paid') {
+      delete finalData.paidAt;
+      delete finalData.paidBy;
+      (finalData as any).paidAt = deleteField();
+      (finalData as any).paidBy = deleteField();
+      try {
+        const q1 = query(collection(db, 'pagamentos'), where('invoiceId', '==', faturaId));
+        const snap1 = await getDocs(q1);
+        for (const d of snap1.docs) {
+          await deleteDoc(d.ref).catch(() => {});
+        }
+        if (prevFat.invoiceNumber && prevFat.invoiceNumber !== faturaId) {
+          const q2 = query(collection(db, 'pagamentos'), where('invoiceId', '==', prevFat.invoiceNumber));
+          const snap2 = await getDocs(q2);
+          for (const d of snap2.docs) {
+            await deleteDoc(d.ref).catch(() => {});
+          }
+        }
+      } catch (e) {
+        console.warn('Erro ao remover pagamentos ao desmarcar status na edição:', e);
+      }
     }
 
     const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
