@@ -195,6 +195,7 @@ export interface AuditoriaLog {
     | 'edit_invoice'
     | 'cancel_invoice'
     | 'confirm_payment'
+    | 'unmark_payment'
     | 'delete_boleto'
     | 'update_tariffs'
     | 'update_company'

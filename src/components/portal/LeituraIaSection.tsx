@@ -17,6 +17,9 @@ import {
   Layers,
   ArrowRight,
   RotateCcw,
+  Lock,
+  CalendarCheck,
+  AlertTriangle,
 } from 'lucide-react';
 import { Cliente, EmpresaConfig, EnergyTariffs, Fatura, Leitura } from '../../types';
 import {
@@ -38,6 +41,7 @@ interface LeituraIaSectionProps {
   onIssueInvoice?: (invoiceData: Omit<Fatura, 'id' | 'createdAt'>) => Promise<void>;
   onRegisterReading?: (readingData: Omit<Leitura, 'id' | 'createdAt'>) => Promise<void>;
   onInvoiceCreatedSuccess?: (fatura: Fatura) => void;
+  onOpenInvoiceModal?: (fatura: Fatura) => void;
 }
 
 // Utilitário para compactar a imagem mantendo excelente nitidez do display
@@ -89,6 +93,7 @@ export const LeituraIaSection: React.FC<LeituraIaSectionProps> = ({
   onIssueInvoice,
   onRegisterReading,
   onInvoiceCreatedSuccess,
+  onOpenInvoiceModal,
 }) => {
   // Cliente ativo para a leitura
   const activeClient = useMemo(() => {
@@ -130,17 +135,95 @@ export const LeituraIaSection: React.FC<LeituraIaSectionProps> = ({
     ? lastFatura.currentReadingDate
     : clientLeituras[0]?.currentReadingDate || '';
 
-  // Determina o próximo mês e ano de faturamento
-  const { nextMonth, nextYear } = useMemo(() => {
-    if (lastFatura) {
-      if (lastFatura.referenceMonth === 12) {
-        return { nextMonth: 1, nextYear: lastFatura.referenceYear + 1 };
-      }
-      return { nextMonth: lastFatura.referenceMonth + 1, nextYear: lastFatura.referenceYear };
-    }
+  // Regra de Emissão no Portal do Cliente:
+  // 1. Clientes pelo portal só podem emitir fatura a partir do dia 28 de cada mês (currentDay >= 28).
+  // 2. Após emitir a fatura do ciclo, só poderão voltar a emitir no dia 28 do próximo mês.
+  const emissionWindow = useMemo(() => {
     const now = new Date();
-    return { nextMonth: now.getMonth() + 1, nextYear: now.getFullYear() };
-  }, [lastFatura]);
+    const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' });
+    const [yearStr, monthStr, dayStr] = formatter.format(now).split('-');
+    const currentYear = parseInt(yearStr, 10);
+    const currentMonth = parseInt(monthStr, 10); // 1-12
+    const currentDay = parseInt(dayStr, 10); // 1-31
+
+    const targetMonth = currentMonth;
+    const targetYear = currentYear;
+
+    // Caso 1: Antes do dia 28 (dias 1 a 27) -> Bloqueado até o dia 28 deste mês!
+    if (currentDay < 28) {
+      const daysRemaining = 28 - currentDay;
+      const nextAllowedDateStr = `28/${String(currentMonth).padStart(2, '0')}/${currentYear}`;
+      return {
+        isAllowed: false,
+        reason: 'before_day_28' as const,
+        currentDay,
+        currentMonth,
+        currentYear,
+        daysRemaining,
+        targetMonth,
+        targetYear,
+        nextAllowedDateStr,
+        message: `A emissão de faturas pelo Portal do Cliente fica liberada a partir do dia 28 de cada mês. Sua próxima emissão estará liberada no dia 28 de ${MONTH_NAMES_BR[currentMonth - 1]} de ${currentYear} (faltam ${daysRemaining} dia${daysRemaining > 1 ? 's' : ''}).`,
+      };
+    }
+
+    // Caso 2: A partir do dia 28 (dias 28 a 31)
+    // Verifica se o cliente JÁ emitiu a fatura deste ciclo (mês atual)
+    const issuedForCurrentCycle = clientFaturas.find(
+      (f) =>
+        f.status !== 'cancelled' &&
+        f.referenceMonth === currentMonth &&
+        f.referenceYear === currentYear
+    );
+
+    // Também verifica se já houve emissão a partir do dia 28 deste mês
+    const cycleStart = new Date(currentYear, currentMonth - 1, 28, 0, 0, 0);
+    const hasIssuedSinceDay28 = clientFaturas.find((f) => {
+      if (f.status === 'cancelled') return false;
+      const d = f.createdAt ? new Date(f.createdAt) : f.issueDate ? new Date(f.issueDate) : null;
+      return d ? d >= cycleStart : false;
+    });
+
+    const existingCycleInvoice = issuedForCurrentCycle || hasIssuedSinceDay28;
+
+    if (existingCycleInvoice) {
+      // Cliente já emitiu a fatura deste ciclo. Só poderá voltar a emitir no dia 28 do próximo mês!
+      const nextAllowedMonth = currentMonth === 12 ? 1 : currentMonth + 1;
+      const nextAllowedYear = currentMonth === 12 ? currentYear + 1 : currentYear;
+      const nextAllowedDateStr = `28/${String(nextAllowedMonth).padStart(2, '0')}/${nextAllowedYear}`;
+
+      return {
+        isAllowed: false,
+        reason: 'already_issued_this_cycle' as const,
+        currentDay,
+        currentMonth,
+        currentYear,
+        targetMonth,
+        targetYear,
+        existingInvoice: existingCycleInvoice,
+        nextAllowedDateStr,
+        nextAllowedMonth,
+        nextAllowedYear,
+        message: `Você já emitiu sua fatura deste ciclo (${MONTH_NAMES_BR[currentMonth - 1]}/${currentYear}). A próxima fatura só poderá ser emitida a partir do dia 28 de ${MONTH_NAMES_BR[nextAllowedMonth - 1]} de ${nextAllowedYear}.`,
+      };
+    }
+
+    // Caso 3: Dia >= 28 e ainda não emitiu no ciclo: Emissão liberada!
+    return {
+      isAllowed: true,
+      reason: 'allowed' as const,
+      currentDay,
+      currentMonth,
+      currentYear,
+      targetMonth,
+      targetYear,
+      nextAllowedDateStr: `28/${String(currentMonth).padStart(2, '0')}/${currentYear}`,
+      message: `Período de leitura aberto! Tire a foto do medidor para emitir sua fatura de ${MONTH_NAMES_BR[currentMonth - 1]}/${currentYear}.`,
+    };
+  }, [clientFaturas]);
+
+  const nextMonth = emissionWindow.targetMonth;
+  const nextYear = emissionWindow.targetYear;
 
   // Estados de Imagem e IA
   const [photoBase64, setPhotoBase64] = useState<string | null>(null);
@@ -276,6 +359,10 @@ export const LeituraIaSection: React.FC<LeituraIaSectionProps> = ({
 
   // Criação da Fatura e Registro da Leitura no Banco de Dados
   const handleConfirmAndCreateInvoice = async () => {
+    if (!emissionWindow.isAllowed) {
+      alert(emissionWindow.message);
+      return;
+    }
     if (!activeClient || effectiveCurrentReading === null) return;
     if (!onIssueInvoice) {
       alert('Função de emissão de faturas não disponível.');
@@ -429,10 +516,19 @@ export const LeituraIaSection: React.FC<LeituraIaSectionProps> = ({
       {/* Banner Principal com Apresentação da Funcionalidade */}
       <div className="rounded-2xl p-6 bg-gradient-to-r from-[#0c3319] via-[#145a2b] to-[#0c3319] text-white shadow-md relative overflow-hidden">
         <div className="relative z-10 max-w-3xl">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="bg-yellow-400 text-emerald-950 text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider flex items-center gap-1 shadow-xs">
               <Sparkles className="w-3 h-3 text-emerald-950" />
               Inteligência Artificial Neo Energia
+            </span>
+            <span
+              className={`text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider ${
+                emissionWindow.isAllowed
+                  ? 'bg-emerald-400 text-emerald-950'
+                  : 'bg-amber-400 text-amber-950'
+              }`}
+            >
+              {emissionWindow.isAllowed ? '● Emissão Liberada (Ciclo Dia 28)' : `● Próxima Emissão: ${emissionWindow.nextAllowedDateStr}`}
             </span>
             <span className="text-xs text-emerald-200 font-semibold">
               Foto com Retenção de 30 Dias
@@ -442,16 +538,93 @@ export const LeituraIaSection: React.FC<LeituraIaSectionProps> = ({
             Tire uma Foto do seu Medidor e Gere sua Fatura na Hora
           </h2>
           <p className="text-xs sm:text-sm text-emerald-100/90 mt-1.5 leading-relaxed">
-            Aponte a câmera para o visor do seu relógio de energia. Nossa Inteligência Artificial
-            identifica automaticamente o consumo atual, compara com a sua última fatura e cria a
-            fatura do mês de{' '}
-            <strong className="text-yellow-300">
-              {MONTH_NAMES_BR[nextMonth - 1]}/{nextYear}
-            </strong>{' '}
-            com o cálculo exato da sua economia garantida!
+            {emissionWindow.isAllowed ? (
+              <>
+                Aponte a câmera para o visor do seu relógio de energia. Nossa Inteligência Artificial
+                identifica automaticamente o consumo atual, compara com a sua última fatura e cria a
+                fatura do mês de{' '}
+                <strong className="text-yellow-300">
+                  {MONTH_NAMES_BR[nextMonth - 1]}/{nextYear}
+                </strong>{' '}
+                com o cálculo exato da sua economia garantida!
+              </>
+            ) : (
+              <>
+                A emissão de faturas pelo Portal do Cliente fica liberada a partir do dia 28 de cada mês.
+                Após emitir, o próximo ciclo estará disponível no dia 28 seguinte.
+              </>
+            )}
           </p>
         </div>
       </div>
+
+      {/* Card Informativo de Status da Regra do Dia 28 */}
+      {!emissionWindow.isAllowed && (
+        <div
+          className={`rounded-2xl p-5 border-2 shadow-sm animate-in fade-in duration-300 ${
+            emissionWindow.reason === 'already_issued_this_cycle'
+              ? 'bg-blue-50 border-blue-300 text-blue-950'
+              : 'bg-amber-50 border-amber-300 text-amber-950'
+          }`}
+        >
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="flex items-start gap-3.5">
+              <div
+                className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 shadow-xs ${
+                  emissionWindow.reason === 'already_issued_this_cycle'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-amber-600 text-white'
+                }`}
+              >
+                {emissionWindow.reason === 'already_issued_this_cycle' ? (
+                  <CalendarCheck className="w-6 h-6" />
+                ) : (
+                  <Lock className="w-6 h-6" />
+                )}
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider ${
+                      emissionWindow.reason === 'already_issued_this_cycle'
+                        ? 'bg-blue-200 text-blue-900'
+                        : 'bg-amber-200 text-amber-900'
+                    }`}
+                  >
+                    {emissionWindow.reason === 'already_issued_this_cycle'
+                      ? 'Fatura do Ciclo Já Emitida'
+                      : 'Emissão Aberta a Partir do Dia 28'}
+                  </span>
+                  <span className="text-xs font-bold opacity-75">
+                    Próxima Emissão: {emissionWindow.nextAllowedDateStr}
+                  </span>
+                </div>
+                <h3 className="text-base font-black mt-1">
+                  {emissionWindow.reason === 'already_issued_this_cycle'
+                    ? `Fatura de ${MONTH_NAMES_BR[emissionWindow.currentMonth - 1]}/${emissionWindow.currentYear} já cadastrada`
+                    : `Leitura liberada apenas a partir do dia 28`}
+                </h3>
+                <p className="text-xs mt-0.5 leading-relaxed opacity-90">
+                  {emissionWindow.message}
+                </p>
+              </div>
+            </div>
+
+            {emissionWindow.reason === 'already_issued_this_cycle' &&
+              emissionWindow.existingInvoice &&
+              onOpenInvoiceModal && (
+                <button
+                  type="button"
+                  onClick={() => onOpenInvoiceModal(emissionWindow.existingInvoice!)}
+                  className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs transition cursor-pointer shadow-xs shrink-0 self-start sm:self-center"
+                >
+                  <FileText className="w-4 h-4" />
+                  <span>Ver Fatura Emitida (#{emissionWindow.existingInvoice.invoiceNumber})</span>
+                </button>
+              )}
+          </div>
+        </div>
+      )}
 
       {/* Alerta de Sucesso após Gerar a Fatura */}
       {generationSuccess && (
@@ -594,31 +767,47 @@ export const LeituraIaSection: React.FC<LeituraIaSectionProps> = ({
 
             <div className="mt-4 space-y-3.5">
               {/* Botão para Acionar Câmera ou Selecionar Foto */}
-              <label className="block cursor-pointer">
+              <label
+                className={`block ${
+                  !emissionWindow.isAllowed ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'
+                }`}
+              >
                 <input
                   type="file"
                   accept="image/*"
                   capture="environment"
                   onChange={handlePhotoSelect}
                   className="hidden"
-                  disabled={isAnalyzing || isGeneratingInvoice}
+                  disabled={!emissionWindow.isAllowed || isAnalyzing || isGeneratingInvoice}
                 />
                 <div
                   className={`p-5 rounded-2xl border-2 border-dashed transition text-center flex flex-col items-center justify-center gap-2 ${
-                    photoBase64
+                    !emissionWindow.isAllowed
+                      ? 'border-gray-300 bg-gray-50'
+                      : photoBase64
                       ? 'border-emerald-500 bg-emerald-50/50 hover:bg-emerald-50'
                       : 'border-emerald-300 bg-emerald-50/30 hover:bg-emerald-50 hover:border-emerald-500'
                   }`}
                 >
-                  <div className="w-12 h-12 rounded-2xl bg-emerald-700 text-white flex items-center justify-center shadow-xs">
-                    <Camera className="w-6 h-6" />
+                  <div
+                    className={`w-12 h-12 rounded-2xl text-white flex items-center justify-center shadow-xs ${
+                      !emissionWindow.isAllowed ? 'bg-gray-400' : 'bg-emerald-700'
+                    }`}
+                  >
+                    {!emissionWindow.isAllowed ? <Lock className="w-6 h-6" /> : <Camera className="w-6 h-6" />}
                   </div>
                   <div>
                     <span className="text-xs font-black text-emerald-950 block">
-                      {photoBase64 ? 'Tirar Outra Foto / Substituir' : 'Tirar Foto do Medidor Agora'}
+                      {!emissionWindow.isAllowed
+                        ? `Emissão Fechada (Abre Dia 28)`
+                        : photoBase64
+                        ? 'Tirar Outra Foto / Substituir'
+                        : 'Tirar Foto do Medidor Agora'}
                     </span>
                     <span className="text-[11px] text-gray-500 block mt-0.5">
-                      Abra a câmera do celular ou selecione da galeria
+                      {!emissionWindow.isAllowed
+                        ? `Disponível a partir de ${emissionWindow.nextAllowedDateStr}`
+                        : 'Abra a câmera do celular ou selecione da galeria'}
                     </span>
                   </div>
                 </div>
@@ -702,10 +891,19 @@ export const LeituraIaSection: React.FC<LeituraIaSectionProps> = ({
                   <input
                     type="text"
                     inputMode="numeric"
+                    disabled={!emissionWindow.isAllowed}
                     value={manualReadingInput}
                     onChange={(e) => setManualReadingInput(e.target.value)}
-                    placeholder="Digite os números do medidor (Ex: 15921)"
-                    className="w-full px-3.5 py-2.5 text-lg font-black text-emerald-950 bg-white border-2 border-emerald-400 rounded-xl focus:ring-2 focus:ring-emerald-600 focus:outline-hidden placeholder:text-gray-400 placeholder:text-xs placeholder:font-normal"
+                    placeholder={
+                      !emissionWindow.isAllowed
+                        ? `Liberado em ${emissionWindow.nextAllowedDateStr}`
+                        : 'Digite os números do medidor (Ex: 15921)'
+                    }
+                    className={`w-full px-3.5 py-2.5 text-lg font-black rounded-xl focus:ring-2 focus:ring-emerald-600 focus:outline-hidden placeholder:text-gray-400 placeholder:text-xs placeholder:font-normal ${
+                      !emissionWindow.isAllowed
+                        ? 'bg-gray-100 text-gray-500 border-2 border-gray-300 cursor-not-allowed'
+                        : 'text-emerald-950 bg-white border-2 border-emerald-400'
+                    }`}
                   />
                   <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-black text-emerald-800 bg-emerald-100 px-2 py-1 rounded-md">
                     kWh
@@ -852,6 +1050,7 @@ export const LeituraIaSection: React.FC<LeituraIaSectionProps> = ({
             <button
               type="button"
               disabled={
+                !emissionWindow.isAllowed ||
                 effectiveCurrentReading === null ||
                 calculatedConsumption <= 0 ||
                 isGeneratingInvoice ||
@@ -859,7 +1058,10 @@ export const LeituraIaSection: React.FC<LeituraIaSectionProps> = ({
               }
               onClick={handleConfirmAndCreateInvoice}
               className={`w-full py-3 px-4 rounded-xl font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition shadow-md cursor-pointer ${
-                effectiveCurrentReading !== null && calculatedConsumption > 0 && !isGeneratingInvoice
+                emissionWindow.isAllowed &&
+                effectiveCurrentReading !== null &&
+                calculatedConsumption > 0 &&
+                !isGeneratingInvoice
                   ? 'bg-emerald-700 hover:bg-emerald-800 text-white shadow-emerald-700/20'
                   : 'bg-gray-200 text-gray-400 cursor-not-allowed'
               }`}
@@ -868,6 +1070,15 @@ export const LeituraIaSection: React.FC<LeituraIaSectionProps> = ({
                 <>
                   <RefreshCw className="w-4 h-4 animate-spin" />
                   <span>Gerando Fatura no Sistema...</span>
+                </>
+              ) : !emissionWindow.isAllowed ? (
+                <>
+                  <Lock className="w-4 h-4" />
+                  <span>
+                    {emissionWindow.reason === 'already_issued_this_cycle'
+                      ? `Fatura Já Emitida (Próxima em ${emissionWindow.nextAllowedDateStr})`
+                      : `Liberado no Dia 28 (${emissionWindow.nextAllowedDateStr})`}
+                  </span>
                 </>
               ) : (
                 <>

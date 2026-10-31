@@ -588,7 +588,7 @@ export const PortalClienteView: React.FC<PortalClienteViewProps> = ({
               <Camera className="w-4 h-4 text-emerald-600" />
               <span>Leitura com Foto & IA</span>
               <span className="bg-yellow-400 text-emerald-950 text-[10px] font-black px-1.5 py-0.2 rounded-full">
-                NOVO
+                Dia 28
               </span>
             </button>
 
@@ -1024,6 +1024,7 @@ export const PortalClienteView: React.FC<PortalClienteViewProps> = ({
             onInvoiceCreatedSuccess={(fat) => {
               if (fat) onOpenInvoiceModal(fat);
             }}
+            onOpenInvoiceModal={onOpenInvoiceModal}
           />
         )}
 

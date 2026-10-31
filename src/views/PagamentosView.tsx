@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { CreditCard, CheckCircle2, Search, DollarSign, Calendar, Eye, Download, ShieldCheck } from 'lucide-react';
+import { CreditCard, CheckCircle2, Search, DollarSign, Calendar, Eye, Download, ShieldCheck, RotateCcw } from 'lucide-react';
 import { Fatura, Pagamento, Cliente } from '../types';
 import { formatCurrency, formatDateBr, formatReferencePeriod } from '../lib/calculations';
 import { ConfirmationModal } from '../components/ConfirmationModal';
@@ -9,6 +9,7 @@ interface PagamentosViewProps {
   faturas: Fatura[];
   clientes: Cliente[];
   onConfirmPayment: (faturaId: string, amount: number) => Promise<void>;
+  onUnmarkPayment?: (faturaId: string) => Promise<void>;
   onOpenInvoiceModal: (fatura: Fatura) => void;
 }
 
@@ -17,6 +18,7 @@ export const PagamentosView: React.FC<PagamentosViewProps> = ({
   faturas,
   clientes,
   onConfirmPayment,
+  onUnmarkPayment,
   onOpenInvoiceModal,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -24,6 +26,11 @@ export const PagamentosView: React.FC<PagamentosViewProps> = ({
   const [selectedFaturaToPay, setSelectedFaturaToPay] = useState<Fatura | null>(null);
   const [confirmModalOpen, setConfirmModalOpen] = useState(false);
   const [paying, setPaying] = useState(false);
+
+  // Estados para desmarcar pagamento
+  const [selectedFaturaToUnmark, setSelectedFaturaToUnmark] = useState<Fatura | null>(null);
+  const [unmarkModalOpen, setUnmarkModalOpen] = useState(false);
+  const [unmarking, setUnmarking] = useState(false);
 
   const handleOpenConfirm = (fat: Fatura) => {
     setSelectedFaturaToPay(fat);
@@ -40,6 +47,24 @@ export const PagamentosView: React.FC<PagamentosViewProps> = ({
       alert('Erro ao confirmar pagamento: ' + (err instanceof Error ? err.message : String(err)));
     } finally {
       setPaying(false);
+    }
+  };
+
+  const handleOpenUnmark = (fat: Fatura) => {
+    setSelectedFaturaToUnmark(fat);
+    setUnmarkModalOpen(true);
+  };
+
+  const handleConfirmUnmark = async () => {
+    if (!selectedFaturaToUnmark || !onUnmarkPayment) return;
+    setUnmarking(true);
+    try {
+      await onUnmarkPayment(selectedFaturaToUnmark.id);
+      setUnmarkModalOpen(false);
+    } catch (err) {
+      alert('Erro ao desmarcar pagamento: ' + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setUnmarking(false);
     }
   };
 
@@ -221,14 +246,37 @@ export const PagamentosView: React.FC<PagamentosViewProps> = ({
                           </span>
                         </td>
                         <td className="py-3 px-4 text-right">
-                          {fat && (
-                            <button
-                              onClick={() => onOpenInvoiceModal(fat)}
-                              className="text-xs font-bold text-emerald-700 hover:underline"
-                            >
-                              Ver Fatura
-                            </button>
-                          )}
+                          <div className="flex items-center justify-end gap-2">
+                            {fat && (
+                              <button
+                                onClick={() => onOpenInvoiceModal(fat)}
+                                className="text-xs font-bold text-emerald-700 hover:underline cursor-pointer"
+                              >
+                                Ver Fatura
+                              </button>
+                            )}
+                            {onUnmarkPayment && (
+                              <button
+                                onClick={() => {
+                                  const targetFat =
+                                    fat ||
+                                    faturas.find(
+                                      (f) => f.id === pag.invoiceId || f.invoiceNumber === pag.invoiceId
+                                    );
+                                  if (targetFat) {
+                                    handleOpenUnmark(targetFat);
+                                  } else {
+                                    alert('Fatura correspondente não encontrada para desmarcar.');
+                                  }
+                                }}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold text-amber-700 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-200 transition cursor-pointer shadow-2xs"
+                                title="Desmarcar pagamento e fazer a fatura voltar ao status Pendente"
+                              >
+                                <RotateCcw className="w-3.5 h-3.5 text-amber-600" />
+                                <span>Desmarcar Pago</span>
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     );
@@ -317,6 +365,25 @@ export const PagamentosView: React.FC<PagamentosViewProps> = ({
         loading={paying}
         onConfirm={handleConfirmPay}
         onCancel={() => setConfirmModalOpen(false)}
+      />
+
+      {/* Confirmation Modal: Desmarcar Pagamento e Voltar para Pendente */}
+      <ConfirmationModal
+        isOpen={unmarkModalOpen}
+        title="Desmarcar Pagamento & Retornar para Pendente"
+        message={
+          selectedFaturaToUnmark
+            ? `Deseja realmente desmarcar o pagamento da fatura #${selectedFaturaToUnmark.invoiceNumber} (${selectedFaturaToUnmark.clientName}) no valor de ${formatCurrency(
+                selectedFaturaToUnmark.totalToPay
+              )}?\n\nA fatura sairá da lista de pagamentos confirmados e retornará para a lista de FATURAS PENDENTES.`
+            : ''
+        }
+        confirmLabel="Sim, Desmarcar Pagamento"
+        cancelLabel="Cancelar"
+        confirmVariant="danger"
+        loading={unmarking}
+        onConfirm={handleConfirmUnmark}
+        onCancel={() => setUnmarkModalOpen(false)}
       />
     </div>
   );

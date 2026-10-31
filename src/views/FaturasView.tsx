@@ -19,6 +19,7 @@ import {
   BellRing,
   Smartphone,
   Edit3,
+  RotateCcw,
 } from 'lucide-react';
 import { Cliente, Fatura, Leitura, EmpresaConfig, EnergyTariffs, InvoiceStatus } from '../types';
 import {
@@ -47,6 +48,7 @@ interface FaturasViewProps {
   onIssueInvoice: (invoice: Omit<Fatura, 'id' | 'createdAt'>) => Promise<void>;
   onUpdateInvoice?: (faturaId: string, updatedData: Partial<Fatura>) => Promise<void>;
   onConfirmPayment: (faturaId: string, amount: number) => Promise<void>;
+  onUnmarkPayment?: (faturaId: string) => Promise<void>;
   onCancelInvoice: (faturaId: string, reason: string) => Promise<void>;
   onDeleteInvoice?: (faturaId: string) => Promise<void>;
   onOpenInvoiceModal: (fatura: Fatura) => void;
@@ -64,6 +66,7 @@ export const FaturasView: React.FC<FaturasViewProps> = ({
   onIssueInvoice,
   onUpdateInvoice,
   onConfirmPayment,
+  onUnmarkPayment,
   onCancelInvoice,
   onDeleteInvoice,
   onOpenInvoiceModal,
@@ -119,6 +122,11 @@ export const FaturasView: React.FC<FaturasViewProps> = ({
   const [payingFatura, setPayingFatura] = useState<Fatura | null>(null);
   const [confirmPaymentOpen, setConfirmPaymentOpen] = useState(false);
   const [processingPayment, setProcessingPayment] = useState(false);
+
+  // Unmark payment modal state
+  const [unmarkingFatura, setUnmarkingFatura] = useState<Fatura | null>(null);
+  const [unmarkPaymentOpen, setUnmarkPaymentOpen] = useState(false);
+  const [processingUnmark, setProcessingUnmark] = useState(false);
 
   // Cancellation modal state
   const [cancellingFatura, setCancellingFatura] = useState<Fatura | null>(null);
@@ -534,6 +542,24 @@ export const FaturasView: React.FC<FaturasViewProps> = ({
       alert('Erro ao confirmar pagamento: ' + (err instanceof Error ? err.message : String(err)));
     } finally {
       setProcessingPayment(false);
+    }
+  };
+
+  const handleOpenUnmarkPayment = (fat: Fatura) => {
+    setUnmarkingFatura(fat);
+    setUnmarkPaymentOpen(true);
+  };
+
+  const handleExecuteUnmarkPayment = async () => {
+    if (!unmarkingFatura || !onUnmarkPayment) return;
+    setProcessingUnmark(true);
+    try {
+      await onUnmarkPayment(unmarkingFatura.id);
+      setUnmarkPaymentOpen(false);
+    } catch (err) {
+      alert('Erro ao desmarcar pagamento: ' + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setProcessingUnmark(false);
     }
   };
 
@@ -953,6 +979,17 @@ export const FaturasView: React.FC<FaturasViewProps> = ({
                           </button>
                         )}
 
+                        {fat.status === 'paid' && onUnmarkPayment && (
+                          <button
+                            onClick={() => handleOpenUnmarkPayment(fat)}
+                            className="flex items-center gap-1 rounded-lg bg-amber-50 border border-amber-200 px-2 py-1 text-xs font-bold text-amber-800 hover:bg-amber-100 transition cursor-pointer shadow-2xs"
+                            title="Desmarcar pagamento e fazer a fatura voltar ao status Pendente"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5 text-amber-600" />
+                            <span>Desmarcar</span>
+                          </button>
+                        )}
+
                         {isAdmin && fat.status !== 'cancelled' && fat.status !== 'paid' && (
                           <button
                             onClick={() => handleOpenCancel(fat)}
@@ -1325,6 +1362,25 @@ export const FaturasView: React.FC<FaturasViewProps> = ({
         loading={processingPayment}
         onConfirm={handleExecutePayment}
         onCancel={() => setConfirmPaymentOpen(false)}
+      />
+
+      {/* Confirmation Modal: Desmarcar Pagamento e Voltar para Pendente */}
+      <ConfirmationModal
+        isOpen={unmarkPaymentOpen}
+        title="Desmarcar Pagamento da Fatura"
+        message={
+          unmarkingFatura
+            ? `Deseja realmente desmarcar o pagamento da fatura #${unmarkingFatura.invoiceNumber} (${unmarkingFatura.clientName}) no valor de ${formatCurrency(
+                unmarkingFatura.totalToPay
+              )}?\n\nA fatura sairá da lista de pagamentos e voltará a ficar com o status PENDENTE.`
+            : ''
+        }
+        confirmLabel="Sim, Desmarcar Pagamento"
+        cancelLabel="Cancelar"
+        confirmVariant="danger"
+        loading={processingUnmark}
+        onConfirm={handleExecuteUnmarkPayment}
+        onCancel={() => setUnmarkPaymentOpen(false)}
       />
 
       {/* Confirmation Modal: Cancel Invoice */}

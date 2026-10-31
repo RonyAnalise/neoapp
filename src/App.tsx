@@ -10,6 +10,9 @@ import {
   deleteDoc,
   writeBatch,
   deleteField,
+  query,
+  where,
+  getDocs,
 } from 'firebase/firestore';
 import { ref, deleteObject } from 'firebase/storage';
 import { db, storage } from './lib/firebase';
@@ -824,6 +827,51 @@ function MainApp() {
     });
   };
 
+  // Revert payment: unmark invoice as paid and return status to pending
+  const handleUnmarkPayment = async (faturaId: string) => {
+    const fat = faturas.find((f) => f.id === faturaId);
+    if (!fat) return;
+
+    const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
+    const targetStatus: InvoiceStatus = fat.dueDate && todayStr > fat.dueDate ? 'overdue' : 'pending';
+
+    // 1. Reverter fatura para pendente ou vencida e limpar dados de pagamento
+    await updateDoc(doc(db, 'faturas', faturaId), {
+      status: targetStatus,
+      paidAt: null,
+      paidBy: null,
+      updatedAt: new Date().toISOString(),
+    });
+
+    // 2. Excluir registros de pagamentos confirmados na coleção 'pagamentos'
+    try {
+      const q1 = query(collection(db, 'pagamentos'), where('invoiceId', '==', faturaId));
+      const snap1 = await getDocs(q1);
+      for (const d of snap1.docs) {
+        await deleteDoc(d.ref).catch(() => {});
+      }
+      if (fat.invoiceNumber) {
+        const q2 = query(collection(db, 'pagamentos'), where('invoiceId', '==', fat.invoiceNumber));
+        const snap2 = await getDocs(q2);
+        for (const d of snap2.docs) {
+          await deleteDoc(d.ref).catch(() => {});
+        }
+      }
+    } catch (err) {
+      console.warn('[Pagamentos] Erro ao remover registros de pagamento da coleção:', err);
+    }
+
+    // 3. Auditoria
+    await logAuditEvent({
+      operationType: 'unmark_payment',
+      collectionName: 'faturas',
+      relatedDocument: fat.invoiceNumber || faturaId,
+      user: userProfile?.name || 'Operador',
+      userEmail: userProfile?.email || '',
+      justification: `Pagamento da fatura #${fat.invoiceNumber} (${fat.clientName}) desmarcado. Fatura retornou ao status ${targetStatus === 'overdue' ? 'Vencida' : 'Pendente'}.`,
+    });
+  };
+
   const handleCancelInvoice = async (faturaId: string, reason: string) => {
     await updateDoc(doc(db, 'faturas', faturaId), {
       status: 'cancelled',
@@ -1216,6 +1264,7 @@ function MainApp() {
               onIssueInvoice={handleIssueInvoice}
               onUpdateInvoice={handleUpdateInvoice}
               onConfirmPayment={handleConfirmPayment}
+              onUnmarkPayment={handleUnmarkPayment}
               onCancelInvoice={handleCancelInvoice}
               onDeleteInvoice={handleDeleteInvoice}
               onOpenInvoiceModal={(fat) => setViewingFatura(fat)}
@@ -1230,6 +1279,7 @@ function MainApp() {
               faturas={faturas}
               clientes={clientes}
               onConfirmPayment={handleConfirmPayment}
+              onUnmarkPayment={handleUnmarkPayment}
               onOpenInvoiceModal={(fat) => setViewingFatura(fat)}
             />
           )}
