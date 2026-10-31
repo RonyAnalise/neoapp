@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { CreditCard, CheckCircle2, Search, DollarSign, Calendar, Eye, Download, ShieldCheck, RotateCcw } from 'lucide-react';
 import { Fatura, Pagamento, Cliente } from '../types';
 import { formatCurrency, formatDateBr, formatReferencePeriod } from '../lib/calculations';
@@ -38,16 +38,21 @@ export const PagamentosView: React.FC<PagamentosViewProps> = ({
     setConfirmModalOpen(true);
   };
 
+  const payingRef = useRef(false);
+
   const handleConfirmPay = async () => {
-    if (!selectedFaturaToPay) return;
+    if (!selectedFaturaToPay || paying || payingRef.current) return;
+    payingRef.current = true;
     setPaying(true);
     try {
       await onConfirmPayment(selectedFaturaToPay.id, selectedFaturaToPay.totalToPay);
       setConfirmModalOpen(false);
+      setSelectedFaturaToPay(null);
     } catch (err) {
       alert('Erro ao confirmar pagamento: ' + (err instanceof Error ? err.message : String(err)));
     } finally {
       setPaying(false);
+      payingRef.current = false;
     }
   };
 
@@ -72,16 +77,27 @@ export const PagamentosView: React.FC<PagamentosViewProps> = ({
     }
   };
 
-  // Build list of confirmed payments, supplementing from paid faturas if payment doc is being reconciled
+  // Build list of confirmed payments, strictly deduplicated by invoiceId
   const paidFaturas = faturas.filter((f) => f.status === 'paid');
 
   const allConfirmedPaymentsList = React.useMemo(() => {
-    const list = [...pagamentos];
-    // Adiciona temporariamente faturas marcadas como 'paid' que ainda estão gravando em pagamentos
+    const uniqueMap = new Map<string, Pagamento>();
+
+    // 1. Prioriza pagamentos gravados no Firestore (evita duplicatas na visualização)
+    pagamentos.forEach((p) => {
+      if (p.status === 'confirmed' && p.invoiceId) {
+        if (!uniqueMap.has(p.invoiceId)) {
+          uniqueMap.set(p.invoiceId, p);
+        }
+      }
+    });
+
+    // 2. Adiciona faturas marcadas como 'paid' apenas se não existir pagamento correspondente
     paidFaturas.forEach((fat) => {
-      const exists = list.some((p) => p.invoiceId === fat.id || p.invoiceId === fat.invoiceNumber);
-      if (!exists) {
-        list.push({
+      const alreadyHas =
+        uniqueMap.has(fat.id) || (fat.invoiceNumber && uniqueMap.has(fat.invoiceNumber));
+      if (!alreadyHas) {
+        uniqueMap.set(fat.id, {
           id: `virtual-${fat.id}`,
           invoiceId: fat.id,
           clientId: fat.clientId,
@@ -94,7 +110,8 @@ export const PagamentosView: React.FC<PagamentosViewProps> = ({
         });
       }
     });
-    return list;
+
+    return Array.from(uniqueMap.values());
   }, [pagamentos, paidFaturas]);
 
   // Filter confirmed payments
