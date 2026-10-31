@@ -290,16 +290,6 @@ function MainApp() {
           const rawFat = { id: d.id, ...(d.data() as Omit<Fatura, 'id'>) };
           const fat = { ...rawFat };
 
-          // Regra solicitada: quando a data atual for maior que a data de vencimento da fatura,
-          // alterar o status para 'overdue' (vencida) automaticamente
-          if (fat.status === 'pending' && fat.dueDate && todayStr > fat.dueDate) {
-            fat.status = 'overdue';
-            updateDoc(doc(db, 'faturas', d.id), {
-              status: 'overdue',
-              updatedAt: new Date().toISOString(),
-            }).catch(() => {});
-          }
-
           // Regra de integridade: ao mudar o status para 'paid', o boleto é garantidamente apagado do Firebase
           if (fat.status === 'paid' && (fat.boletoBase64 || fat.boletoStoragePath)) {
             updateDoc(doc(db, 'faturas', d.id), {
@@ -443,96 +433,23 @@ function MainApp() {
     }
   }, [currentUser, clientes.length]);
 
-  // Reconciliação bi-direcional de integridade entre 'faturas', 'pagamentos' e 'auditoria':
-  // Garante que faturas com pagamento confirmado NUNCA apareçam como pendentes e vice-versa.
+  // Integridade de Boletos: Garante que faturas com status 'paid' tenham boletos expurgados do banco
   useEffect(() => {
     if (!currentUser || faturas.length === 0) return;
 
-    // 1. Mapeia faturas com pagamento confirmado em 'pagamentos' ou no log de auditoria
-    const confirmedPaymentInvoiceIds = new Map<string, { date: string; user: string; amount?: number }>();
-
-    pagamentos.forEach((p) => {
-      if (p.status === 'confirmed' && p.invoiceId) {
-        confirmedPaymentInvoiceIds.set(p.invoiceId, {
-          date: p.paymentDate || p.createdAt || new Date().toISOString(),
-          user: p.confirmedBy || 'Operador',
-          amount: p.amountPaid,
-        });
+    // Apenas limpa boletos remanescentes em faturas pagas (requisito de conformidade e segurança)
+    faturas.forEach((fat) => {
+      if (fat.status === 'paid' && (fat.boletoBase64 || fat.boletoStoragePath)) {
+        updateDoc(doc(db, 'faturas', fat.id), {
+          boletoBase64: null,
+          boletoStoragePath: null,
+          boletoFileName: null,
+          boletoUploadedAt: null,
+          paymentPendingDeletion: false,
+        }).catch(() => {});
       }
     });
-
-    auditoriaLogs.forEach((log) => {
-      if (log.operationType === 'confirm_payment' && log.relatedDocument) {
-        if (!confirmedPaymentInvoiceIds.has(log.relatedDocument)) {
-          confirmedPaymentInvoiceIds.set(log.relatedDocument, {
-            date: log.timestamp || new Date().toISOString(),
-            user: log.user || 'Operador',
-            amount: (log.newData as any)?.amountPaid,
-          });
-        }
-      }
-    });
-
-    // 2. Se a fatura tem pagamento confirmado mas está como 'pending' ou 'overdue' no banco, restaura para 'paid'
-    faturas.forEach(async (fat) => {
-      const payInfo =
-        confirmedPaymentInvoiceIds.get(fat.id) ||
-        confirmedPaymentInvoiceIds.get(fat.invoiceNumber);
-
-      if (payInfo && fat.status !== 'paid') {
-        try {
-          await updateDoc(doc(db, 'faturas', fat.id), {
-            status: 'paid',
-            paidAt: fat.paidAt || payInfo.date,
-            paidBy: fat.paidBy || payInfo.user,
-            boletoBase64: null,
-            boletoStoragePath: null,
-            paymentPendingDeletion: false,
-          });
-        } catch (err) {
-          console.warn('Erro ao restaurar status de fatura paga:', err);
-        }
-      }
-
-      // 3. Se a fatura está marcada como 'paid' mas ainda NÃO possui doc correspondente em 'pagamentos', cria o registro
-      if (fat.status === 'paid') {
-        const hasPagamentoDoc = pagamentos.some(
-          (p) => (p.invoiceId === fat.id || p.invoiceId === fat.invoiceNumber) && p.status === 'confirmed'
-        );
-        if (!hasPagamentoDoc) {
-          try {
-            const payRef = doc(collection(db, 'pagamentos'));
-            await setDoc(payRef, {
-              invoiceId: fat.id,
-              clientId: fat.clientId,
-              amountPaid: fat.totalToPay,
-              paymentDate: fat.paidAt || new Date().toISOString(),
-              confirmationMethod: 'manual',
-              confirmedBy: fat.paidBy || 'Operador',
-              status: 'confirmed',
-              createdAt: fat.paidAt || new Date().toISOString(),
-            });
-          } catch (err) {
-            console.warn('Erro ao criar registro de pagamento na reconciliação:', err);
-          }
-        }
-      }
-
-      // 4. Verificação automática de vencimento de faturas pendentes:
-      // Quando a data atual for maior que a data de vencimento, altera o status para 'overdue' (vencida)
-      const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
-      if (fat.status === 'pending' && fat.dueDate && todayStr > fat.dueDate) {
-        try {
-          await updateDoc(doc(db, 'faturas', fat.id), {
-            status: 'overdue',
-            updatedAt: new Date().toISOString(),
-          });
-        } catch (err) {
-          console.warn(`Erro ao atualizar fatura #${fat.invoiceNumber} para vencida:`, err);
-        }
-      }
-    });
-  }, [currentUser, faturas, pagamentos, auditoriaLogs]);
+  }, [currentUser, faturas]);
 
   // Handlers for Firestore actions
   const handleSaveCliente = async (clienteData: Partial<Cliente>, isNew: boolean) => {
@@ -757,7 +674,7 @@ function MainApp() {
     const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
     const effectiveDueDate = updatedData.dueDate || prevFat?.dueDate;
     if (finalData.status !== 'paid' && finalData.status !== 'cancelled' && effectiveDueDate) {
-      if (todayStr > effectiveDueDate) {
+      if (todayStr > effectiveDueDate && updatedData.status !== 'pending') {
         finalData.status = 'overdue';
       }
     }
@@ -828,29 +745,72 @@ function MainApp() {
   };
 
   // Revert payment: unmark invoice as paid and return status to pending
-  const handleUnmarkPayment = async (faturaId: string) => {
-    const fat = faturas.find((f) => f.id === faturaId);
-    if (!fat) return;
+  const handleUnmarkPayment = async (faturaId: string, pagamentoId?: string) => {
+    const fat = faturas.find((f) => f.id === faturaId || f.invoiceNumber === faturaId);
+    const targetDocId = fat?.id || faturaId;
 
-    const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
-    const targetStatus: InvoiceStatus = fat.dueDate && todayStr > fat.dueDate ? 'overdue' : 'pending';
+    // 1. Atualização Otimista imediata na interface React
+    setFaturas((prev) =>
+      prev.map((f) => {
+        if (f.id === targetDocId || (fat?.invoiceNumber && f.invoiceNumber === fat.invoiceNumber)) {
+          return {
+            ...f,
+            status: 'pending',
+            paidAt: undefined,
+            paidBy: undefined,
+          };
+        }
+        return f;
+      })
+    );
 
-    // 1. Reverter fatura para pendente ou vencida e limpar dados de pagamento
-    await updateDoc(doc(db, 'faturas', faturaId), {
-      status: targetStatus,
-      paidAt: null,
-      paidBy: null,
-      updatedAt: new Date().toISOString(),
-    });
+    setPagamentos((prev) =>
+      prev.filter((p) => {
+        if (pagamentoId && p.id === pagamentoId) return false;
+        if (p.invoiceId === targetDocId) return false;
+        if (fat?.invoiceNumber && p.invoiceId === fat.invoiceNumber) return false;
+        return true;
+      })
+    );
 
-    // 2. Excluir registros de pagamentos confirmados na coleção 'pagamentos'
+    // 2. Reverter fatura para status 'pending' no Firestore e limpar dados de pagamento
     try {
-      const q1 = query(collection(db, 'pagamentos'), where('invoiceId', '==', faturaId));
+      await updateDoc(doc(db, 'faturas', targetDocId), {
+        status: 'pending',
+        paidAt: deleteField(),
+        paidBy: deleteField(),
+        updatedAt: new Date().toISOString(),
+      });
+    } catch (err) {
+      console.warn('[handleUnmarkPayment] Tentativa com deleteField falhou, tentando com null:', err);
+      try {
+        await updateDoc(doc(db, 'faturas', targetDocId), {
+          status: 'pending',
+          paidAt: null,
+          paidBy: null,
+          updatedAt: new Date().toISOString(),
+        });
+      } catch (err2) {
+        console.error('[handleUnmarkPayment] Falha ao atualizar fatura no Firestore:', err2);
+      }
+    }
+
+    // 3. Excluir registros de pagamentos confirmados na coleção 'pagamentos'
+    try {
+      // 3a. Exclusão direta pelo ID do documento se fornecido
+      if (pagamentoId && !pagamentoId.startsWith('virtual-')) {
+        await deleteDoc(doc(db, 'pagamentos', pagamentoId)).catch(() => {});
+      }
+
+      // 3b. Exclusão por invoiceId correspondente ao targetDocId
+      const q1 = query(collection(db, 'pagamentos'), where('invoiceId', '==', targetDocId));
       const snap1 = await getDocs(q1);
       for (const d of snap1.docs) {
         await deleteDoc(d.ref).catch(() => {});
       }
-      if (fat.invoiceNumber) {
+
+      // 3c. Exclusão por invoiceNumber se for diferente do doc ID
+      if (fat?.invoiceNumber && fat.invoiceNumber !== targetDocId) {
         const q2 = query(collection(db, 'pagamentos'), where('invoiceId', '==', fat.invoiceNumber));
         const snap2 = await getDocs(q2);
         for (const d of snap2.docs) {
@@ -861,15 +821,19 @@ function MainApp() {
       console.warn('[Pagamentos] Erro ao remover registros de pagamento da coleção:', err);
     }
 
-    // 3. Auditoria
-    await logAuditEvent({
-      operationType: 'unmark_payment',
-      collectionName: 'faturas',
-      relatedDocument: fat.invoiceNumber || faturaId,
-      user: userProfile?.name || 'Operador',
-      userEmail: userProfile?.email || '',
-      justification: `Pagamento da fatura #${fat.invoiceNumber} (${fat.clientName}) desmarcado. Fatura retornou ao status ${targetStatus === 'overdue' ? 'Vencida' : 'Pendente'}.`,
-    });
+    // 4. Trilha de Auditoria
+    try {
+      await logAuditEvent({
+        operationType: 'unmark_payment',
+        collectionName: 'faturas',
+        relatedDocument: fat?.invoiceNumber || targetDocId,
+        user: userProfile?.name || 'Operador',
+        userEmail: userProfile?.email || '',
+        justification: `Pagamento da fatura #${fat?.invoiceNumber || targetDocId} (${fat?.clientName || 'Cliente'}) desmarcado com sucesso. Status retornou para Pendente.`,
+      });
+    } catch (err) {
+      console.warn('Erro ao salvar auditoria de desmarcação de pagamento:', err);
+    }
   };
 
   const handleCancelInvoice = async (faturaId: string, reason: string) => {
