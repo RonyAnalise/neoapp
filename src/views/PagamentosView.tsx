@@ -9,7 +9,7 @@ interface PagamentosViewProps {
   faturas: Fatura[];
   clientes: Cliente[];
   onConfirmPayment: (faturaId: string, amount: number) => Promise<void>;
-  onUnmarkPayment?: (faturaId: string) => Promise<void>;
+  onUnmarkPayment?: (faturaId: string, pagamentoId?: string) => Promise<void>;
   onOpenInvoiceModal: (fatura: Fatura) => void;
 }
 
@@ -29,6 +29,7 @@ export const PagamentosView: React.FC<PagamentosViewProps> = ({
 
   // Estados para desmarcar pagamento
   const [selectedFaturaToUnmark, setSelectedFaturaToUnmark] = useState<Fatura | null>(null);
+  const [selectedPagamentoToUnmark, setSelectedPagamentoToUnmark] = useState<Pagamento | null>(null);
   const [unmarkModalOpen, setUnmarkModalOpen] = useState(false);
   const [unmarking, setUnmarking] = useState(false);
 
@@ -50,8 +51,9 @@ export const PagamentosView: React.FC<PagamentosViewProps> = ({
     }
   };
 
-  const handleOpenUnmark = (fat: Fatura) => {
+  const handleOpenUnmark = (fat: Fatura, pag?: Pagamento) => {
     setSelectedFaturaToUnmark(fat);
+    setSelectedPagamentoToUnmark(pag || null);
     setUnmarkModalOpen(true);
   };
 
@@ -59,8 +61,10 @@ export const PagamentosView: React.FC<PagamentosViewProps> = ({
     if (!selectedFaturaToUnmark || !onUnmarkPayment) return;
     setUnmarking(true);
     try {
-      await onUnmarkPayment(selectedFaturaToUnmark.id);
+      await onUnmarkPayment(selectedFaturaToUnmark.id, selectedPagamentoToUnmark?.id);
       setUnmarkModalOpen(false);
+      setSelectedFaturaToUnmark(null);
+      setSelectedPagamentoToUnmark(null);
     } catch (err) {
       alert('Erro ao desmarcar pagamento: ' + (err instanceof Error ? err.message : String(err)));
     } finally {
@@ -222,7 +226,7 @@ export const PagamentosView: React.FC<PagamentosViewProps> = ({
                   </tr>
                 ) : (
                   filteredPagamentos.map((pag) => {
-                    const fat = faturas.find((f) => f.id === pag.invoiceId);
+                    const fat = faturas.find((f) => f.id === pag.invoiceId || f.invoiceNumber === pag.invoiceId);
                     const client = clientes.find((c) => c.id === pag.clientId || c.id === fat?.clientId);
                     return (
                       <tr key={pag.id} className="hover:bg-gray-50/60 transition">
@@ -264,9 +268,37 @@ export const PagamentosView: React.FC<PagamentosViewProps> = ({
                                       (f) => f.id === pag.invoiceId || f.invoiceNumber === pag.invoiceId
                                     );
                                   if (targetFat) {
-                                    handleOpenUnmark(targetFat);
+                                    handleOpenUnmark(targetFat, pag);
                                   } else {
-                                    alert('Fatura correspondente não encontrada para desmarcar.');
+                                    // Mesmo que a fatura não esteja na memória, permite desmarcar criando objeto com os dados conhecidos
+                                    handleOpenUnmark(
+                                      {
+                                        id: pag.invoiceId,
+                                        invoiceNumber: pag.invoiceId,
+                                        clientId: pag.clientId,
+                                        clientName: client?.name || 'Cliente',
+                                        referenceMonth: 0,
+                                        referenceYear: 0,
+                                        previousReading: 0,
+                                        previousReadingDate: '',
+                                        currentReading: 0,
+                                        currentReadingDate: '',
+                                        consumptionKwh: 0,
+                                        appliedNeoTariff: 0,
+                                        appliedCoelbaTariff: 0,
+                                        neoAmount: pag.amountPaid,
+                                        coelbaEstimateAmount: 0,
+                                        savingsAmount: 0,
+                                        savingsPercentage: 0,
+                                        totalToPay: pag.amountPaid,
+                                        issueDate: '',
+                                        dueDate: '',
+                                        status: 'paid',
+                                        createdAt: '',
+                                        createdBy: 'Sistema',
+                                      },
+                                      pag
+                                    );
                                   }
                                 }}
                                 className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold text-amber-700 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-200 transition cursor-pointer shadow-2xs"
