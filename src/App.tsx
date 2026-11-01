@@ -658,17 +658,22 @@ function MainApp() {
         (p) => (p.invoiceId === faturaId || p.invoiceId === prevFat?.invoiceNumber) && p.status === 'confirmed'
       );
       if (!hasPayment && prevFat) {
-        const payRef = doc(collection(db, 'pagamentos'));
-        await setDoc(payRef, {
-          invoiceId: faturaId,
-          clientId: prevFat.clientId,
-          amountPaid: updatedData.totalToPay !== undefined ? updatedData.totalToPay : prevFat.totalToPay,
-          paymentDate: finalData.paidAt,
-          confirmationMethod: 'manual',
-          confirmedBy: finalData.paidBy,
-          status: 'confirmed',
-          createdAt: finalData.paidAt,
-        }).catch((e) => console.warn('Erro ao registrar pagamento na edição:', e));
+        const payRef = doc(db, 'pagamentos', `pay_${faturaId}`);
+        await setDoc(
+          payRef,
+          {
+            id: `pay_${faturaId}`,
+            invoiceId: faturaId,
+            clientId: prevFat.clientId,
+            amountPaid: updatedData.totalToPay !== undefined ? updatedData.totalToPay : prevFat.totalToPay,
+            paymentDate: finalData.paidAt,
+            confirmationMethod: 'manual',
+            confirmedBy: finalData.paidBy,
+            status: 'confirmed',
+            createdAt: finalData.paidAt,
+          },
+          { merge: true }
+        ).catch((e) => console.warn('Erro ao registrar pagamento na edição:', e));
       }
     } else if (updatedData.status && updatedData.status !== 'paid' && prevFat?.status === 'paid') {
       delete finalData.paidAt;
@@ -676,20 +681,29 @@ function MainApp() {
       (finalData as any).paidAt = deleteField();
       (finalData as any).paidBy = deleteField();
       try {
+        const nowIso = new Date().toISOString();
+        await updateDoc(doc(db, 'pagamentos', `pay_${faturaId}`), {
+          status: 'pending',
+          updatedAt: nowIso,
+        }).catch(() => {});
         const q1 = query(collection(db, 'pagamentos'), where('invoiceId', '==', faturaId));
         const snap1 = await getDocs(q1);
         for (const d of snap1.docs) {
-          await deleteDoc(d.ref).catch(() => {});
+          await updateDoc(d.ref, { status: 'pending', updatedAt: nowIso }).catch(() => {});
         }
         if (prevFat.invoiceNumber && prevFat.invoiceNumber !== faturaId) {
+          await updateDoc(doc(db, 'pagamentos', `pay_${prevFat.invoiceNumber}`), {
+            status: 'pending',
+            updatedAt: nowIso,
+          }).catch(() => {});
           const q2 = query(collection(db, 'pagamentos'), where('invoiceId', '==', prevFat.invoiceNumber));
           const snap2 = await getDocs(q2);
           for (const d of snap2.docs) {
-            await deleteDoc(d.ref).catch(() => {});
+            await updateDoc(d.ref, { status: 'pending', updatedAt: nowIso }).catch(() => {});
           }
         }
       } catch (e) {
-        console.warn('Erro ao remover pagamentos ao desmarcar status na edição:', e);
+        console.warn('Erro ao atualizar pagamentos para status pendente na edição:', e);
       }
     }
 
@@ -859,15 +873,25 @@ function MainApp() {
     }
   };
 
-  // Revert payment: unmark invoice as paid and return status to pending
+  // Revert payment: unmark invoice as paid and return status to pending (in both faturas and pagamentos)
   const handleUnmarkPayment = async (faturaId: string, pagamentoId?: string) => {
+    // Localiza a fatura por ID do documento ou por invoiceNumber
     const fat = faturas.find((f) => f.id === faturaId || f.invoiceNumber === faturaId);
     const targetDocId = fat?.id || faturaId;
+    const invoiceNum =
+      fat?.invoiceNumber || (faturaId.startsWith('FAT-') || faturaId.startsWith('NEO-') ? faturaId : undefined);
+    const nowIso = new Date().toISOString();
+    const currentUserName = userProfile?.name || 'Operador';
 
     // 1. Atualização Otimista imediata na interface React
+    // Tanto a fatura quanto o pagamento retornam para o status 'pending' (preserva o registro sem apagar)
     setFaturas((prev) =>
       prev.map((f) => {
-        if (f.id === targetDocId || (fat?.invoiceNumber && f.invoiceNumber === fat.invoiceNumber)) {
+        if (
+          f.id === targetDocId ||
+          f.id === faturaId ||
+          (invoiceNum && f.invoiceNumber === invoiceNum)
+        ) {
           return {
             ...f,
             status: 'pending',
@@ -880,60 +904,148 @@ function MainApp() {
     );
 
     setPagamentos((prev) =>
-      prev.filter((p) => {
-        if (pagamentoId && p.id === pagamentoId) return false;
-        if (p.invoiceId === targetDocId) return false;
-        if (fat?.invoiceNumber && p.invoiceId === fat.invoiceNumber) return false;
-        return true;
+      prev.map((p) => {
+        const isMatched =
+          (pagamentoId && p.id === pagamentoId) ||
+          p.invoiceId === targetDocId ||
+          p.invoiceId === faturaId ||
+          (invoiceNum && p.invoiceId === invoiceNum) ||
+          p.id === `pay_${targetDocId}` ||
+          p.id === `pay_${faturaId}` ||
+          (invoiceNum && p.id === `pay_${invoiceNum}`);
+
+        if (isMatched) {
+          return {
+            ...p,
+            status: 'pending' as const,
+            unmarkedAt: nowIso,
+            unmarkedBy: currentUserName,
+          };
+        }
+        return p;
       })
     );
 
-    // 2. Reverter fatura para status 'pending' no Firestore e limpar dados de pagamento
+    // 2. Reverter fatura para status 'pending' no Firestore e limpar dados de quitação
+    let updatedOnServer = false;
     try {
       await updateDoc(doc(db, 'faturas', targetDocId), {
         status: 'pending',
         paidAt: deleteField(),
         paidBy: deleteField(),
-        updatedAt: new Date().toISOString(),
+        updatedAt: nowIso,
       });
-    } catch (err) {
-      console.warn('[handleUnmarkPayment] Tentativa com deleteField falhou, tentando com null:', err);
+      updatedOnServer = true;
+    } catch (err1) {
+      console.warn('[handleUnmarkPayment] Tentativa com deleteField falhou, tentando com null:', err1);
       try {
         await updateDoc(doc(db, 'faturas', targetDocId), {
           status: 'pending',
           paidAt: null,
           paidBy: null,
-          updatedAt: new Date().toISOString(),
+          updatedAt: nowIso,
         });
+        updatedOnServer = true;
       } catch (err2) {
-        console.error('[handleUnmarkPayment] Falha ao atualizar fatura no Firestore:', err2);
+        console.warn('[handleUnmarkPayment] Erro ao atualizar por ID direto:', err2);
       }
     }
 
-    // 3. Excluir registros de pagamentos confirmados na coleção 'pagamentos'
+    // Se o targetDocId não encontrou o documento e temos um invoiceNumber, localiza e atualiza via query
+    if (!updatedOnServer && invoiceNum) {
+      try {
+        const qFat = query(collection(db, 'faturas'), where('invoiceNumber', '==', invoiceNum));
+        const snapFat = await getDocs(qFat);
+        for (const d of snapFat.docs) {
+          await updateDoc(d.ref, {
+            status: 'pending',
+            paidAt: deleteField(),
+            paidBy: deleteField(),
+            updatedAt: nowIso,
+          }).catch(async () => {
+            await updateDoc(d.ref, {
+              status: 'pending',
+              paidAt: null,
+              paidBy: null,
+              updatedAt: nowIso,
+            }).catch(() => {});
+          });
+        }
+      } catch (errQuery) {
+        console.warn('[handleUnmarkPayment] Erro ao atualizar fatura por invoiceNumber:', errQuery);
+      }
+    }
+
+    // 3. Em vez de apagar, atualizar o status do registro em 'pagamentos' para 'pending' no Firestore
     try {
-      // 3a. Exclusão direta pelo ID do documento se fornecido
+      // 3a. Atualização direta pelo ID do documento se fornecido
       if (pagamentoId && !pagamentoId.startsWith('virtual-')) {
-        await deleteDoc(doc(db, 'pagamentos', pagamentoId)).catch(() => {});
+        await updateDoc(doc(db, 'pagamentos', pagamentoId), {
+          status: 'pending',
+          unmarkedAt: nowIso,
+          unmarkedBy: currentUserName,
+          updatedAt: nowIso,
+        }).catch(() => {});
       }
 
-      // 3b. Exclusão por invoiceId correspondente ao targetDocId
+      // 3b. Atualização pelo ID determinístico se existir
+      await updateDoc(doc(db, 'pagamentos', `pay_${targetDocId}`), {
+        status: 'pending',
+        unmarkedAt: nowIso,
+        unmarkedBy: currentUserName,
+        updatedAt: nowIso,
+      }).catch(() => {});
+
+      if (invoiceNum) {
+        await updateDoc(doc(db, 'pagamentos', `pay_${invoiceNum}`), {
+          status: 'pending',
+          unmarkedAt: nowIso,
+          unmarkedBy: currentUserName,
+          updatedAt: nowIso,
+        }).catch(() => {});
+      }
+
+      // 3c. Atualização por invoiceId correspondente ao targetDocId
       const q1 = query(collection(db, 'pagamentos'), where('invoiceId', '==', targetDocId));
       const snap1 = await getDocs(q1);
       for (const d of snap1.docs) {
-        await deleteDoc(d.ref).catch(() => {});
+        await updateDoc(d.ref, {
+          status: 'pending',
+          unmarkedAt: nowIso,
+          unmarkedBy: currentUserName,
+          updatedAt: nowIso,
+        }).catch(() => {});
       }
 
-      // 3c. Exclusão por invoiceNumber se for diferente do doc ID
-      if (fat?.invoiceNumber && fat.invoiceNumber !== targetDocId) {
-        const q2 = query(collection(db, 'pagamentos'), where('invoiceId', '==', fat.invoiceNumber));
+      // 3d. Atualização por invoiceNumber se for diferente do doc ID
+      if (invoiceNum && invoiceNum !== targetDocId) {
+        const q2 = query(collection(db, 'pagamentos'), where('invoiceId', '==', invoiceNum));
         const snap2 = await getDocs(q2);
         for (const d of snap2.docs) {
-          await deleteDoc(d.ref).catch(() => {});
+          await updateDoc(d.ref, {
+            status: 'pending',
+            unmarkedAt: nowIso,
+            unmarkedBy: currentUserName,
+            updatedAt: nowIso,
+          }).catch(() => {});
+        }
+      }
+
+      // 3e. Atualização por faturaId se for diferente de ambos
+      if (faturaId && faturaId !== targetDocId && faturaId !== invoiceNum) {
+        const q3 = query(collection(db, 'pagamentos'), where('invoiceId', '==', faturaId));
+        const snap3 = await getDocs(q3);
+        for (const d of snap3.docs) {
+          await updateDoc(d.ref, {
+            status: 'pending',
+            unmarkedAt: nowIso,
+            unmarkedBy: currentUserName,
+            updatedAt: nowIso,
+          }).catch(() => {});
         }
       }
     } catch (err) {
-      console.warn('[Pagamentos] Erro ao remover registros de pagamento da coleção:', err);
+      console.warn('[Pagamentos] Erro ao atualizar registros de pagamento para pending:', err);
     }
 
     // 4. Trilha de Auditoria
@@ -941,10 +1053,10 @@ function MainApp() {
       await logAuditEvent({
         operationType: 'unmark_payment',
         collectionName: 'faturas',
-        relatedDocument: fat?.invoiceNumber || targetDocId,
+        relatedDocument: fat?.invoiceNumber || invoiceNum || targetDocId,
         user: userProfile?.name || 'Operador',
         userEmail: userProfile?.email || '',
-        justification: `Pagamento da fatura #${fat?.invoiceNumber || targetDocId} (${fat?.clientName || 'Cliente'}) desmarcado com sucesso. Status retornou para Pendente.`,
+        justification: `Pagamento da fatura #${fat?.invoiceNumber || invoiceNum || targetDocId} (${fat?.clientName || 'Cliente'}) desmarcado com sucesso. Status retornou para Pendente.`,
       });
     } catch (err) {
       console.warn('Erro ao salvar auditoria de desmarcação de pagamento:', err);

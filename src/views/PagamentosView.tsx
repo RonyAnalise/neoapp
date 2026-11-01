@@ -83,9 +83,14 @@ export const PagamentosView: React.FC<PagamentosViewProps> = ({
   const allConfirmedPaymentsList = React.useMemo(() => {
     const uniqueMap = new Map<string, Pagamento>();
 
-    // 1. Prioriza pagamentos gravados no Firestore (evita duplicatas na visualização)
+    // 1. Prioriza pagamentos gravados no Firestore para faturas que estão realmente quitadas
     pagamentos.forEach((p) => {
       if (p.status === 'confirmed' && p.invoiceId) {
+        // Se a fatura correspondente existe e o status não é 'paid' (foi desmarcada para pendente), não exibe como pago
+        const matchedFat = faturas.find((f) => f.id === p.invoiceId || f.invoiceNumber === p.invoiceId);
+        if (matchedFat && matchedFat.status !== 'paid') {
+          return;
+        }
         if (!uniqueMap.has(p.invoiceId)) {
           uniqueMap.set(p.invoiceId, p);
         }
@@ -112,7 +117,7 @@ export const PagamentosView: React.FC<PagamentosViewProps> = ({
     });
 
     return Array.from(uniqueMap.values());
-  }, [pagamentos, paidFaturas]);
+  }, [pagamentos, paidFaturas, faturas]);
 
   // Filter confirmed payments
   const filteredPagamentos = allConfirmedPaymentsList.filter((p) => {
@@ -424,7 +429,7 @@ export const PagamentosView: React.FC<PagamentosViewProps> = ({
           selectedFaturaToUnmark
             ? `Deseja realmente desmarcar o pagamento da fatura #${selectedFaturaToUnmark.invoiceNumber} (${selectedFaturaToUnmark.clientName}) no valor de ${formatCurrency(
                 selectedFaturaToUnmark.totalToPay
-              )}?\n\nA fatura sairá da lista de pagamentos confirmados e retornará para a lista de FATURAS PENDENTES.`
+              )}?\n\nO registro de pagamento e a fatura serão preservados no sistema e retornarão para o status PENDENTE.`
             : ''
         }
         confirmLabel="Sim, Desmarcar Pagamento"

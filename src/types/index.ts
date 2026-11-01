@@ -161,9 +161,11 @@ export interface Pagamento {
   paymentDate: string;
   confirmationMethod: 'manual' | 'gateway' | 'integration';
   confirmedBy: string;
-  status: 'confirmed' | 'reversed';
+  status: 'confirmed' | 'reversed' | 'pending';
   createdAt: string;
   notes?: string;
+  unmarkedAt?: string;
+  unmarkedBy?: string;
 }
 
 export interface TaxaCoelba {
