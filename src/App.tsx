@@ -203,10 +203,10 @@ function MainApp() {
       const batch = writeBatch(db);
       for (const rec of SEED_RECORDS) {
         // 1. Cliente
-        batch.set(doc(db, 'clientes', rec.cliente.id), rec.cliente, { merge: true });
+        batch.set(doc(db, 'clientes', rec.cliente.id), sanitizeForFirestore(rec.cliente), { merge: true });
 
         // 2. Leitura
-        batch.set(doc(db, 'leituras', rec.leitura.id), rec.leitura, { merge: true });
+        batch.set(doc(db, 'leituras', rec.leitura.id), sanitizeForFirestore(rec.leitura), { merge: true });
 
         // 3. Fatura: preserva status de pagamento existente se a fatura já foi paga
         const existingFat = faturas.find((f) => f.id === rec.fatura.id);
@@ -216,31 +216,31 @@ function MainApp() {
 
         if (existingFat) {
           const isPaid = existingFat.status === 'paid' || hasConfirmedPayment;
-          batch.set(
-            doc(db, 'faturas', rec.fatura.id),
-            {
-              ...rec.fatura,
-              status: isPaid ? 'paid' : existingFat.status,
-              paidAt: existingFat.paidAt || (isPaid ? new Date().toISOString() : undefined),
-              paidBy: existingFat.paidBy || (isPaid ? 'Operador' : undefined),
-              boletoBase64: isPaid ? null : (existingFat.boletoBase64 !== undefined ? existingFat.boletoBase64 : rec.fatura.boletoBase64),
-              boletoFileName: isPaid ? null : (existingFat.boletoFileName !== undefined ? existingFat.boletoFileName : rec.fatura.boletoFileName),
-              historicalCompanyData: empresa?.companyName ? empresa : DEFAULT_EMPRESA,
-            },
-            { merge: true }
-          );
+          const fatData: Record<string, any> = {
+            ...rec.fatura,
+            status: isPaid ? 'paid' : existingFat.status,
+            boletoBase64: isPaid ? null : (existingFat.boletoBase64 !== undefined ? existingFat.boletoBase64 : rec.fatura.boletoBase64 || null),
+            boletoFileName: isPaid ? null : (existingFat.boletoFileName !== undefined ? existingFat.boletoFileName : rec.fatura.boletoFileName || null),
+            historicalCompanyData: empresa?.companyName ? empresa : DEFAULT_EMPRESA,
+          };
+          if (existingFat.paidAt || isPaid) {
+            fatData.paidAt = existingFat.paidAt || new Date().toISOString();
+          }
+          if (existingFat.paidBy || isPaid) {
+            fatData.paidBy = existingFat.paidBy || 'Operador';
+          }
+          batch.set(doc(db, 'faturas', rec.fatura.id), sanitizeForFirestore(fatData), { merge: true });
         } else {
-          batch.set(
-            doc(db, 'faturas', rec.fatura.id),
-            {
-              ...rec.fatura,
-              status: hasConfirmedPayment ? 'paid' : rec.fatura.status,
-              paidAt: hasConfirmedPayment ? new Date().toISOString() : undefined,
-              paidBy: hasConfirmedPayment ? 'Operador' : undefined,
-              historicalCompanyData: empresa?.companyName ? empresa : DEFAULT_EMPRESA,
-            },
-            { merge: true }
-          );
+          const fatData: Record<string, any> = {
+            ...rec.fatura,
+            status: hasConfirmedPayment ? 'paid' : rec.fatura.status,
+            historicalCompanyData: empresa?.companyName ? empresa : DEFAULT_EMPRESA,
+          };
+          if (hasConfirmedPayment) {
+            fatData.paidAt = new Date().toISOString();
+            fatData.paidBy = 'Operador';
+          }
+          batch.set(doc(db, 'faturas', rec.fatura.id), sanitizeForFirestore(fatData), { merge: true });
         }
       }
 
@@ -1350,9 +1350,9 @@ function MainApp() {
 
         <main className="flex-1 p-4 sm:p-8 print:p-0 print:m-0">
           {/* Banner de Sincronização e Feedback de Faturas das Imagens */}
-          {(clientes.length < 38 || syncStatus !== 'idle') && (
+          {((clientes.length < 38 && syncStatus === 'idle') || (syncStatus !== 'idle')) && (
             <div
-              className={`mb-6 p-4 rounded-2xl shadow-md border flex flex-col md:flex-row items-center justify-between gap-4 transition-all no-print ${
+              className={`mb-6 p-4 rounded-2xl shadow-md border flex flex-col md:flex-row items-center justify-between gap-4 transition-all no-print relative ${
                 syncStatus === 'error'
                   ? 'bg-rose-900 border-rose-700 text-white'
                   : syncStatus === 'success'
@@ -1360,7 +1360,7 @@ function MainApp() {
                   : 'bg-gradient-to-r from-emerald-800 via-green-800 to-teal-900 border-emerald-600 text-white'
               }`}
             >
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 flex-1">
                 <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center text-xl shrink-0 font-bold">
                   {syncStatus === 'syncing' ? '⏳' : syncStatus === 'success' ? '✅' : syncStatus === 'error' ? '⚠️' : '⚡'}
                 </div>
@@ -1383,20 +1383,34 @@ function MainApp() {
                   </p>
                 </div>
               </div>
-              <button
-                onClick={() => syncAllSeedInvoices(true)}
-                disabled={isSyncing}
-                className="shrink-0 bg-white text-emerald-950 hover:bg-emerald-50 px-5 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider shadow transition cursor-pointer disabled:opacity-50 flex items-center gap-2"
-              >
-                {isSyncing ? (
-                  <>
-                    <span className="w-4 h-4 border-2 border-emerald-900 border-t-transparent rounded-full animate-spin" />
-                    Gravando no Banco...
-                  </>
-                ) : (
-                  '⚡ Gravar Todas as 38 no Banco Agora'
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={() => syncAllSeedInvoices(true)}
+                  disabled={isSyncing}
+                  className="bg-white text-emerald-950 hover:bg-emerald-50 px-5 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider shadow transition cursor-pointer disabled:opacity-50 flex items-center gap-2"
+                >
+                  {isSyncing ? (
+                    <>
+                      <span className="w-4 h-4 border-2 border-emerald-900 border-t-transparent rounded-full animate-spin" />
+                      Gravando no Banco...
+                    </>
+                  ) : (
+                    '⚡ Gravar Todas as 38 no Banco Agora'
+                  )}
+                </button>
+                {syncStatus !== 'idle' && (
+                  <button
+                    onClick={() => {
+                      setSyncStatus('idle');
+                      setSyncMessage('');
+                    }}
+                    className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white transition cursor-pointer text-xs"
+                    title="Fechar aviso"
+                  >
+                    ✕
+                  </button>
                 )}
-              </button>
+              </div>
             </div>
           )}
 
