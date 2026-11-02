@@ -609,50 +609,7 @@ export const LeituraIaSection: React.FC<LeituraIaSectionProps> = ({
         </div>
       )}
 
-      {/* Banner Principal com Apresentação da Funcionalidade */}
-      <div className="rounded-2xl p-6 bg-gradient-to-r from-[#0c3319] via-[#145a2b] to-[#0c3319] text-white shadow-md relative overflow-hidden">
-        <div className="relative z-10 max-w-3xl">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="bg-yellow-400 text-emerald-950 text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider flex items-center gap-1 shadow-xs">
-              <Sparkles className="w-3 h-3 text-emerald-950" />
-              Inteligência Artificial Neo Energia
-            </span>
-            <span
-              className={`text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider ${
-                emissionWindow.isAllowed
-                  ? 'bg-emerald-400 text-emerald-950'
-                  : 'bg-amber-400 text-amber-950'
-              }`}
-            >
-              {emissionWindow.isAllowed ? '● Emissão Liberada (Ciclo Dia 28)' : `● Próxima Emissão: ${emissionWindow.nextAllowedDateStr}`}
-            </span>
-            <span className="text-xs text-emerald-200 font-semibold">
-              Foto com Retenção de 30 Dias
-            </span>
-          </div>
-          <h2 className="text-xl sm:text-2xl font-black mt-2">
-            Tire uma Foto do seu Medidor e Gere sua Fatura na Hora
-          </h2>
-          <p className="text-xs sm:text-sm text-emerald-100/90 mt-1.5 leading-relaxed">
-            {emissionWindow.isAllowed ? (
-              <>
-                Aponte a câmera para o visor do seu relógio de energia. Nossa Inteligência Artificial
-                identifica automaticamente o consumo atual, compara com a sua última fatura e cria a
-                fatura do mês de{' '}
-                <strong className="text-yellow-300">
-                  {MONTH_NAMES_BR[nextMonth - 1]}/{nextYear}
-                </strong>{' '}
-                com o cálculo exato da sua economia garantida!
-              </>
-            ) : (
-              <>
-                A emissão de faturas pelo Portal do Cliente fica liberada a partir do dia 28 de cada mês.
-                Após emitir, o próximo ciclo estará disponível no dia 28 seguinte.
-              </>
-            )}
-          </p>
-        </div>
-      </div>
+
 
       {/* Card Informativo de Status da Regra do Dia 28 */}
       {!emissionWindow.isAllowed && (
