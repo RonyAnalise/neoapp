@@ -1367,70 +1367,7 @@ function MainApp() {
         />
 
         <main className="flex-1 p-4 sm:p-8 print:p-0 print:m-0">
-          {/* Banner de Sincronização e Feedback de Faturas das Imagens */}
-          {((clientes.length < 38 && syncStatus === 'idle') || (syncStatus !== 'idle')) && (
-            <div
-              className={`mb-6 p-4 rounded-2xl shadow-md border flex flex-col md:flex-row items-center justify-between gap-4 transition-all no-print relative ${
-                syncStatus === 'error'
-                  ? 'bg-rose-900 border-rose-700 text-white'
-                  : syncStatus === 'success'
-                  ? 'bg-emerald-800 border-emerald-600 text-white'
-                  : 'bg-gradient-to-r from-emerald-800 via-green-800 to-teal-900 border-emerald-600 text-white'
-              }`}
-            >
-              <div className="flex items-center gap-3 flex-1">
-                <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center text-xl shrink-0 font-bold">
-                  {syncStatus === 'syncing' ? '⏳' : syncStatus === 'success' ? '✅' : syncStatus === 'error' ? '⚠️' : '⚡'}
-                </div>
-                <div>
-                  <h4 className="font-bold text-sm md:text-base flex items-center gap-2">
-                    {syncStatus === 'syncing'
-                      ? 'Gravando faturas e clientes no banco de dados...'
-                      : syncStatus === 'success'
-                      ? 'Sincronização Concluída!'
-                      : syncStatus === 'error'
-                      ? 'Atenção na Sincronização'
-                      : '38 Faturas e Medidores Prontos para Cadastro'}
-                    <span className="text-[11px] font-normal px-2 py-0.5 rounded-full bg-white/20">
-                      {clientes.length} de 38 cadastrados
-                    </span>
-                  </h4>
-                  <p className="text-xs text-emerald-100/90 mt-0.5">
-                    {syncMessage ||
-                      `Todos os 38 medidores e faturas de Setembro/2026 foram identificados das imagens. Clique no botão ao lado para cadastrar todos no Firestore.`}
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <button
-                  onClick={() => syncAllSeedInvoices(true)}
-                  disabled={isSyncing}
-                  className="bg-white text-emerald-950 hover:bg-emerald-50 px-5 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider shadow transition cursor-pointer disabled:opacity-50 flex items-center gap-2"
-                >
-                  {isSyncing ? (
-                    <>
-                      <span className="w-4 h-4 border-2 border-emerald-900 border-t-transparent rounded-full animate-spin" />
-                      Gravando no Banco...
-                    </>
-                  ) : (
-                    '⚡ Gravar Todas as 38 no Banco Agora'
-                  )}
-                </button>
-                {syncStatus !== 'idle' && (
-                  <button
-                    onClick={() => {
-                      setSyncStatus('idle');
-                      setSyncMessage('');
-                    }}
-                    className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white transition cursor-pointer text-xs"
-                    title="Fechar aviso"
-                  >
-                    ✕
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
+
 
           {activeTab === 'dashboard' && (
             <DashboardView
