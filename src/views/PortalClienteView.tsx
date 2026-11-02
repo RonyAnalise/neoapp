@@ -910,14 +910,17 @@ export const PortalClienteView: React.FC<PortalClienteViewProps> = ({
 
                         {/* Dados da Fatura */}
                         <div className="space-y-2 text-xs text-gray-700">
-                          {matchedClient && (
-                            <div className="flex justify-between items-center text-[11px] bg-gray-50 p-1.5 rounded-lg border border-gray-100">
-                              <span className="font-semibold text-gray-500">Medidor:</span>
-                              <span className="font-bold text-gray-900">
-                                {matchedClient.meterNumber || matchedClient.consumerUnit || matchedClient.clientCodeCoelba}
-                              </span>
-                            </div>
-                          )}
+                          <div className="flex justify-between items-center text-[11px] bg-gray-50 p-1.5 rounded-lg border border-gray-100">
+                            <span className="font-semibold text-gray-500">Medidor / Instalação:</span>
+                            <span className="font-bold text-gray-900">
+                              {fat.meterNumber || matchedClient?.meterNumber || matchedClient?.consumerUnit || matchedClient?.clientCodeCoelba || 'Medidor Padrão'}
+                              {(fat.consumerUnit || matchedClient?.consumerUnit) && (
+                                <span className="font-mono text-gray-500 font-normal ml-1">
+                                  (UC: {fat.consumerUnit || matchedClient?.consumerUnit})
+                                </span>
+                              )}
+                            </span>
+                          </div>
 
                           <div className="flex justify-between items-center">
                             <span className="text-gray-500">Consumo no Mês:</span>

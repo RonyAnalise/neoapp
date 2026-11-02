@@ -20,6 +20,7 @@ import {
   Smartphone,
   Edit3,
   RotateCcw,
+  Layers,
 } from 'lucide-react';
 import { Cliente, Fatura, Leitura, EmpresaConfig, EnergyTariffs, InvoiceStatus } from '../types';
 import {
@@ -333,6 +334,26 @@ export const FaturasView: React.FC<FaturasViewProps> = ({
 
   // Effective tariffs: use client custom if defined, otherwise system defaults
   const selectedClientObj = clientes.find((c) => c.id === clientId);
+
+  // Identifica todos os cadastros/medidores deste mesmo titular (mesmo CPF, e-mail ou nome)
+  const linkedMetersForSelectedClient = useMemo(() => {
+    if (!selectedClientObj) return [];
+    const cleanCpf = selectedClientObj.cpfCnpj?.replace(/\D/g, '');
+    const cleanName = selectedClientObj.name?.trim().toLowerCase();
+    const cleanEmail = selectedClientObj.email?.trim().toLowerCase();
+    return clientes.filter((c) => {
+      const cCpf = c.cpfCnpj?.replace(/\D/g, '');
+      const cName = c.name?.trim().toLowerCase();
+      const cEmail = c.email?.trim().toLowerCase();
+      return (
+        c.id === selectedClientObj.id ||
+        (cleanCpf && cCpf && cleanCpf === cCpf) ||
+        (cleanEmail && cEmail && cleanEmail === cEmail) ||
+        (cleanName && cName && cleanName === cName)
+      );
+    });
+  }, [selectedClientObj, clientes]);
+
   const effectiveNeoTariff =
     selectedClientObj?.customNeoTariff && selectedClientObj.customNeoTariff > 0
       ? selectedClientObj.customNeoTariff
@@ -424,6 +445,8 @@ export const FaturasView: React.FC<FaturasViewProps> = ({
         invoiceNumber,
         clientId,
         clientName: selectedClient.name,
+        meterNumber: selectedClient.meterNumber || selectedClient.consumerUnit || selectedClient.clientCodeCoelba,
+        consumerUnit: selectedClient.consumerUnit || selectedClient.clientCodeCoelba,
         referenceMonth: invoiceMonth,
         referenceYear: invoiceYear,
         previousReading: Number(prevReading),
@@ -857,11 +880,27 @@ export const FaturasView: React.FC<FaturasViewProps> = ({
                   </td>
                 </tr>
               ) : (
-                filteredFaturas.map((fat) => (
+                filteredFaturas.map((fat) => {
+                  const cli = clientes.find((c) => c.id === fat.clientId);
+                  const meterDisplay = fat.meterNumber || cli?.meterNumber;
+                  const ucDisplay = fat.consumerUnit || cli?.consumerUnit || cli?.clientCodeCoelba;
+                  return (
                   <tr key={fat.id} className="hover:bg-gray-50/60 transition">
                     <td className="py-3 px-4">
-                      <div className="font-bold text-gray-900">{fat.clientName || 'Cliente'}</div>
-                      <div className="text-[10px] text-gray-400 font-mono">#{fat.invoiceNumber}</div>
+                      <div className="font-bold text-gray-900">{fat.clientName || cli?.name || 'Cliente'}</div>
+                      <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
+                        <span className="text-[10px] text-gray-400 font-mono">#{fat.invoiceNumber}</span>
+                        {meterDisplay && (
+                          <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                            Medidor: {meterDisplay}
+                          </span>
+                        )}
+                        {ucDisplay && (
+                          <span className="text-[10px] text-gray-500 font-mono">
+                            UC: {ucDisplay}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="py-3 px-3 font-semibold text-gray-800 whitespace-nowrap">
                       {formatReferencePeriod(fat.referenceMonth, fat.referenceYear)}
@@ -1020,7 +1059,8 @@ export const FaturasView: React.FC<FaturasViewProps> = ({
                       </div>
                     </td>
                   </tr>
-                ))
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -1056,24 +1096,124 @@ export const FaturasView: React.FC<FaturasViewProps> = ({
             )}
 
             <form onSubmit={handleCreateSubmit} className="space-y-4 text-xs">
-              {/* Cliente */}
+              {/* Cliente e Medidor */}
               <div>
-                <label className="block font-bold text-gray-700 mb-1">Cliente *</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block font-bold text-gray-700">Cliente e Medidor (Instalação) *</label>
+                  {selectedClientObj && (
+                    <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full">
+                      Medidor: {selectedClientObj.meterNumber || selectedClientObj.consumerUnit || selectedClientObj.clientCodeCoelba}
+                    </span>
+                  )}
+                </div>
+
                 <select
                   required
                   value={clientId}
                   onChange={(e) => handleClientChange(e.target.value)}
-                  className="w-full rounded-xl border border-gray-300 p-2.5 text-gray-900 focus:border-emerald-600 focus:outline-none"
+                  className="w-full rounded-xl border border-gray-300 p-2.5 text-gray-900 focus:border-emerald-600 focus:outline-none font-medium"
                 >
                   <option value="" disabled>
-                    Selecione o cliente
+                    Selecione o cadastro / medidor do cliente...
                   </option>
-                  {clientes.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name} • {c.cpfCnpj} {c.clientCodeCoelba ? `(Cód: ${c.clientCodeCoelba})` : ''}
-                    </option>
-                  ))}
+                  {clientes.map((c) => {
+                    const meterDisplay = c.meterNumber
+                      ? `Medidor: ${c.meterNumber}`
+                      : c.consumerUnit
+                      ? `UC: ${c.consumerUnit}`
+                      : `Cód: ${c.clientCodeCoelba}`;
+                    return (
+                      <option key={c.id} value={c.id}>
+                        {c.name} — {meterDisplay} ({c.address ? `${c.address}, ${c.number}` : c.city})
+                      </option>
+                    );
+                  })}
                 </select>
+
+                {/* Seletor de Medidor quando o cliente possui mais de 1 cadastro */}
+                {linkedMetersForSelectedClient.length > 1 && (
+                  <div className="mt-2.5 p-3 rounded-2xl bg-emerald-50/90 border-2 border-emerald-500/70 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-black text-emerald-950 uppercase flex items-center gap-1.5">
+                        <Layers className="w-3.5 h-3.5 text-emerald-700" />
+                        <span>Este titular possui {linkedMetersForSelectedClient.length} medidores cadastrados:</span>
+                      </span>
+                      <span className="text-[10px] bg-emerald-700 text-white font-bold px-2 py-0.5 rounded-full uppercase">
+                        Escolha o Medidor
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-emerald-800 leading-tight">
+                      Clique no medidor desejado para emitir a fatura da respectiva instalação:
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-1">
+                      {linkedMetersForSelectedClient.map((m) => {
+                        const isSelected = m.id === clientId;
+                        const hasInvoiceInCycle = faturas.some(
+                          (f) =>
+                            f.clientId === m.id &&
+                            f.referenceMonth === invoiceMonth &&
+                            f.referenceYear === invoiceYear &&
+                            f.status !== 'cancelled'
+                        );
+                        return (
+                          <button
+                            type="button"
+                            key={m.id}
+                            onClick={() => handleClientChange(m.id)}
+                            className={`p-2.5 rounded-xl border text-left text-xs transition cursor-pointer flex flex-col justify-between gap-1 ${
+                              isSelected
+                                ? 'bg-emerald-700 text-white border-emerald-800 shadow-xs ring-2 ring-emerald-600/20'
+                                : 'bg-white text-gray-800 border-gray-200 hover:border-emerald-300 hover:bg-emerald-50/40'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-1">
+                              <span className="font-black text-xs truncate">
+                                {m.consumerUnit || m.meterNumber || m.clientCodeCoelba || 'UC'}
+                              </span>
+                              {isSelected ? (
+                                <span className="text-[9px] bg-white text-emerald-900 px-1.5 py-0.5 rounded-full font-black uppercase shrink-0">
+                                  ✓ Ativo
+                                </span>
+                              ) : hasInvoiceInCycle ? (
+                                <span className="text-[9px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded-full font-bold uppercase shrink-0">
+                                  Fatura Emitida
+                                </span>
+                              ) : (
+                                <span className="text-[9px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded-full font-bold uppercase shrink-0">
+                                  Pendente
+                                </span>
+                              )}
+                            </div>
+                            <div className={`text-[11px] ${isSelected ? 'text-emerald-100' : 'text-gray-600'}`}>
+                              Medidor: <strong>{m.meterNumber || m.consumerUnit || m.clientCodeCoelba}</strong>
+                            </div>
+                            <div className={`text-[10px] truncate ${isSelected ? 'text-emerald-200' : 'text-gray-500'}`}>
+                              {m.address ? `${m.address}, ${m.number}` : m.city}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Banner de Resumo da Instalação Selecionada */}
+                {selectedClientObj && (
+                  <div className="mt-2 p-2 rounded-xl bg-gray-50 border border-gray-200 flex flex-wrap items-center justify-between gap-2 text-[11px] text-gray-600">
+                    <div className="flex items-center gap-1.5">
+                      <Zap className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      <span>
+                        Medidor: <strong className="text-gray-900">{selectedClientObj.meterNumber || selectedClientObj.consumerUnit || selectedClientObj.clientCodeCoelba}</strong>
+                        {selectedClientObj.consumerUnit && (
+                          <span className="ml-1 text-gray-500">(UC: {selectedClientObj.consumerUnit})</span>
+                        )}
+                      </span>
+                    </div>
+                    <div className="text-gray-500 truncate max-w-[260px]">
+                      Endereço: <strong>{selectedClientObj.address ? `${selectedClientObj.address}, ${selectedClientObj.number}` : selectedClientObj.city}</strong>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Competência e Vencimento */}

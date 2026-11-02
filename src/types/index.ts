@@ -109,6 +109,8 @@ export interface Fatura {
   invoiceNumber: string;
   clientId: string;
   clientName?: string;
+  meterNumber?: string;
+  consumerUnit?: string;
   referenceMonth: number; // 1-12
   referenceYear: number;
   previousReading: number;

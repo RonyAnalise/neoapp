@@ -146,6 +146,9 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
                 CPF: <span className="font-normal">{cliente.cpfCnpj}</span>
                 {cliente.consumerUnit ? ` (${cliente.consumerUnit})` : ''}
               </p>
+              <p className="font-bold text-[#156231]">
+                MEDIDOR Nº: <span className="font-extrabold font-mono text-gray-900">{fatura.meterNumber || cliente.meterNumber || cliente.consumerUnit || cliente.clientCodeCoelba || 'PADRÃO'}</span>
+              </p>
               <p className="font-medium text-gray-700 uppercase">
                 {cliente.address} {cliente.number}
               </p>

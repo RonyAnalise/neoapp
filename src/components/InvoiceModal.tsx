@@ -1,8 +1,10 @@
 import React, { useRef, useState } from 'react';
-import { X, Printer, FileText, Camera, Clock, ShieldCheck } from 'lucide-react';
+import { X, Printer, FileText, Camera, Clock, ShieldCheck, Download } from 'lucide-react';
 import { Fatura, Cliente, EmpresaConfig } from '../types';
 import { InvoiceTemplate } from './InvoiceTemplate';
+import { InvoicePhotoPage } from './InvoicePhotoPage';
 import { formatDateBr } from '../lib/calculations';
+import { downloadMeterPhoto } from '../lib/photoService';
 
 interface InvoiceModalProps {
   fatura: Fatura | null;
@@ -28,6 +30,15 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
 
   const handlePrint = () => {
     window.print();
+  };
+
+  const handleDownloadPhoto = () => {
+    if (fatura.meterPhotoBase64) {
+      downloadMeterPhoto(
+        fatura.meterPhotoBase64,
+        `foto_medidor_${fatura.invoiceNumber || 'cliente'}`
+      );
+    }
   };
 
   return (
@@ -62,15 +73,27 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
 
           <div className="flex items-center gap-2">
             {fatura.meterPhotoBase64 && (
-              <button
-                type="button"
-                onClick={() => setShowMeterPhoto(true)}
-                className="flex items-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-800 hover:bg-emerald-100 transition cursor-pointer"
-                title="Visualizar foto do medidor enviada para cálculo da fatura"
-              >
-                <Camera className="w-3.5 h-3.5 text-emerald-700" />
-                <span>Foto do Medidor</span>
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() => setShowMeterPhoto(true)}
+                  className="flex items-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-800 hover:bg-emerald-100 transition cursor-pointer"
+                  title="Visualizar foto do medidor enviada para cálculo da fatura"
+                >
+                  <Camera className="w-3.5 h-3.5 text-emerald-700" />
+                  <span>Foto do Medidor</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleDownloadPhoto}
+                  className="flex items-center gap-1.5 rounded-xl border border-emerald-400 bg-white hover:bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-800 transition cursor-pointer shadow-xs"
+                  title="Baixar a foto do medidor tirada pelo cliente em arquivo"
+                >
+                  <Download className="w-3.5 h-3.5 text-emerald-700" />
+                  <span>Baixar Foto</span>
+                </button>
+              </>
             )}
 
             {(fatura.boletoBase64 || fatura.boletoStoragePath) && onOpenBoleto && (
@@ -86,7 +109,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
             <button
               onClick={handlePrint}
               className="flex items-center gap-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 px-4 py-2 text-xs font-bold text-white transition cursor-pointer shadow-xs"
-              title="Imprimir fatura em folha A4"
+              title="Imprimir fatura (inclui página 2 com foto do medidor)"
             >
               <Printer className="w-4 h-4" />
               <span>Imprimir Fatura</span>
@@ -104,12 +127,23 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
         {/* Modal Scrollable Body */}
         <div className="overflow-y-auto p-3 sm:p-6 bg-gray-200/70 print:p-0 print:m-0 print:bg-transparent print:overflow-visible print:block">
           <div ref={invoiceRef} className="print:m-0 print:p-0">
+            {/* Página 1: Fatura Oficial */}
             <InvoiceTemplate
               fatura={fatura}
               cliente={cliente}
               empresa={empresa}
               allClientInvoices={allClientInvoices}
             />
+
+            {/* Página 2: Comprovante de Leitura com Foto Tirada pelo Cliente */}
+            {fatura.meterPhotoBase64 && (
+              <InvoicePhotoPage
+                fatura={fatura}
+                cliente={cliente}
+                empresa={empresa}
+                onDownloadPhoto={handleDownloadPhoto}
+              />
+            )}
           </div>
         </div>
       </div>
@@ -157,13 +191,23 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
                   )
                 </span>
               </div>
-              <button
-                type="button"
-                onClick={() => setShowMeterPhoto(false)}
-                className="w-full sm:w-auto px-4 py-2 rounded-xl bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold transition cursor-pointer"
-              >
-                Fechar
-              </button>
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <button
+                  type="button"
+                  onClick={handleDownloadPhoto}
+                  className="w-full sm:w-auto px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold transition cursor-pointer flex items-center justify-center gap-1.5 shadow-xs"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Baixar Foto (JPG)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowMeterPhoto(false)}
+                  className="w-full sm:w-auto px-4 py-2 rounded-xl bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold transition cursor-pointer"
+                >
+                  Fechar
+                </button>
+              </div>
             </div>
           </div>
         </div>

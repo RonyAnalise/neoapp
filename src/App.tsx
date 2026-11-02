@@ -629,6 +629,24 @@ function MainApp() {
       }
     }
 
+    // Regra: se apagar a fatura, remove também a leitura vinculada criada para este ciclo, permitindo refazer a leitura com foto
+    if (fat) {
+      const linkedReadings = leituras.filter(
+        (l) =>
+          l.clientId === fat.clientId &&
+          (l.currentReadingValue === fat.currentReading ||
+            l.currentReadingDate === fat.currentReadingDate ||
+            (l.referenceMonth === fat.referenceMonth && l.referenceYear === fat.referenceYear))
+      );
+      for (const lr of linkedReadings) {
+        try {
+          await deleteDoc(doc(db, 'leituras', lr.id));
+        } catch (e) {
+          console.warn('Erro ao excluir leitura vinculada à fatura apagada:', e);
+        }
+      }
+    }
+
     await deleteDoc(doc(db, 'faturas', faturaId));
     await logAuditEvent({
       operationType: 'delete_invoice',
