@@ -10,6 +10,7 @@ interface PagamentosViewProps {
   clientes: Cliente[];
   onConfirmPayment: (faturaId: string, amount: number) => Promise<void>;
   onUnmarkPayment?: (faturaId: string, pagamentoId?: string) => Promise<void>;
+  onRestoreSeptemberPayments?: () => Promise<{ restoredCount: number }>;
   onOpenInvoiceModal: (fatura: Fatura) => void;
 }
 
@@ -19,6 +20,7 @@ export const PagamentosView: React.FC<PagamentosViewProps> = ({
   clientes,
   onConfirmPayment,
   onUnmarkPayment,
+  onRestoreSeptemberPayments,
   onOpenInvoiceModal,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -26,6 +28,10 @@ export const PagamentosView: React.FC<PagamentosViewProps> = ({
   const [selectedFaturaToPay, setSelectedFaturaToPay] = useState<Fatura | null>(null);
   const [confirmModalOpen, setConfirmModalOpen] = useState(false);
   const [paying, setPaying] = useState(false);
+
+  // Estados para restaurar pagamentos de Setembro
+  const [restoring, setRestoring] = useState(false);
+  const [restoreSuccessMsg, setRestoreSuccessMsg] = useState<string | null>(null);
 
   // Estados para desmarcar pagamento
   const [selectedFaturaToUnmark, setSelectedFaturaToUnmark] = useState<Fatura | null>(null);
@@ -74,6 +80,25 @@ export const PagamentosView: React.FC<PagamentosViewProps> = ({
       alert('Erro ao desmarcar pagamento: ' + (err instanceof Error ? err.message : String(err)));
     } finally {
       setUnmarking(false);
+    }
+  };
+
+  const handleRestoreSeptember = async () => {
+    if (!onRestoreSeptemberPayments || restoring) return;
+    setRestoring(true);
+    setRestoreSuccessMsg(null);
+    try {
+      const res = await onRestoreSeptemberPayments();
+      setRestoreSuccessMsg(
+        res.restoredCount > 0
+          ? `Sucesso! O status de quitado foi restaurado para ${res.restoredCount} faturas de Setembro.`
+          : 'Todas as faturas quitadas de Setembro já estão sincronizadas.'
+      );
+      setTimeout(() => setRestoreSuccessMsg(null), 6000);
+    } catch (err) {
+      alert('Erro ao restaurar faturas de Setembro: ' + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setRestoring(false);
     }
   };
 
@@ -210,17 +235,46 @@ export const PagamentosView: React.FC<PagamentosViewProps> = ({
           </button>
         </div>
 
-        <div className="relative w-full sm:w-72">
-          <Search className="w-4 h-4 text-gray-400 absolute left-3 top-3" />
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Buscar fatura ou cliente..."
-            className="w-full rounded-xl border border-gray-300 pl-9 pr-3 py-2 text-xs text-gray-900 focus:border-emerald-600 focus:outline-none"
-          />
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+          {onRestoreSeptemberPayments && (
+            <button
+              type="button"
+              onClick={handleRestoreSeptember}
+              disabled={restoring}
+              className="flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold transition shadow-xs cursor-pointer disabled:opacity-50 shrink-0"
+              title="Restaurar status de quitado das faturas de Setembro para quem já havia pago"
+            >
+              <RotateCcw className={`w-3.5 h-3.5 ${restoring ? 'animate-spin' : ''}`} />
+              <span>{restoring ? 'Restaurando...' : 'Restaurar Quitados de Setembro'}</span>
+            </button>
+          )}
+
+          <div className="relative w-full sm:w-64">
+            <Search className="w-4 h-4 text-gray-400 absolute left-3 top-3" />
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Buscar fatura ou cliente..."
+              className="w-full rounded-xl border border-gray-300 pl-9 pr-3 py-2 text-xs text-gray-900 focus:border-emerald-600 focus:outline-none"
+            />
+          </div>
         </div>
       </div>
+
+      {/* Alerta de Sucesso na Restauração */}
+      {restoreSuccessMsg && (
+        <div className="p-3 bg-emerald-100 border border-emerald-300 text-emerald-900 rounded-xl text-xs font-bold flex items-center justify-between animate-in fade-in">
+          <span>{restoreSuccessMsg}</span>
+          <button
+            type="button"
+            onClick={() => setRestoreSuccessMsg(null)}
+            className="text-emerald-700 hover:text-emerald-950 p-1 cursor-pointer font-bold"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* Main Table */}
       <div className="bg-white rounded-2xl border border-gray-200/80 shadow-xs overflow-hidden">
