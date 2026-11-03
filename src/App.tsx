@@ -452,6 +452,50 @@ function MainApp() {
     });
   }, [currentUser, faturas]);
 
+  // Reconciliação automática: Se uma fatura no Firestore estiver como 'pending' mas tiver um pagamento confirmado em 'pagamentos',
+  // restaura automaticamente para 'paid' no Firestore
+  useEffect(() => {
+    if (!currentUser || faturas.length === 0 || pagamentos.length === 0) return;
+
+    const toRestore = faturas.filter((fat) => {
+      if (fat.status === 'paid') return false;
+      const payment = pagamentos.find(
+        (p) =>
+          (p.invoiceId === fat.id ||
+            (fat.invoiceNumber && p.invoiceId === fat.invoiceNumber) ||
+            p.id === `pay_${fat.id}` ||
+            (fat.invoiceNumber && p.id === `pay_${fat.invoiceNumber}`)) &&
+          p.status === 'confirmed'
+      );
+      return !!payment;
+    });
+
+    if (toRestore.length > 0) {
+      toRestore.forEach(async (fat) => {
+        const pay = pagamentos.find(
+          (p) =>
+            (p.invoiceId === fat.id ||
+              (fat.invoiceNumber && p.invoiceId === fat.invoiceNumber) ||
+              p.id === `pay_${fat.id}` ||
+              (fat.invoiceNumber && p.id === `pay_${fat.invoiceNumber}`)) &&
+            p.status === 'confirmed'
+        );
+        const paidAtVal = pay?.paymentDate || pay?.createdAt || fat.issueDate || new Date().toISOString();
+        const paidByVal = pay?.confirmedBy || 'Administrador';
+        try {
+          await updateDoc(doc(db, 'faturas', fat.id), {
+            status: 'paid',
+            paidAt: paidAtVal,
+            paidBy: paidByVal,
+            updatedAt: new Date().toISOString(),
+          });
+        } catch (e) {
+          console.warn(`Erro ao reconciliar fatura ${fat.id}:`, e);
+        }
+      });
+    }
+  }, [currentUser, faturas, pagamentos]);
+
   // Handlers for Firestore actions
   const handleSaveCliente = async (clienteData: Partial<Cliente>, isNew: boolean) => {
     // Sanitização completa para o Firestore (remove propriedades 'undefined' que causam erro na SDK)
@@ -1081,6 +1125,76 @@ function MainApp() {
     }
   };
 
+  // Restaura status de quitado (paid) das faturas de Setembro/2026 para quem já tinha quitado
+  const handleRestoreSeptemberPayments = async (): Promise<{ restoredCount: number }> => {
+    const nowIso = new Date().toISOString();
+    const batch = writeBatch(db);
+    let count = 0;
+
+    // Faturas de setembro/2026 (competência 9/2026)
+    const septFaturas = faturas.filter(
+      (f) => f.referenceMonth === 9 && f.referenceYear === 2026 && f.status !== 'cancelled'
+    );
+
+    for (const fat of septFaturas) {
+      // Procura pagamento na coleção de pagamentos
+      const matchingPayment = pagamentos.find(
+        (p) =>
+          p.invoiceId === fat.id ||
+          (fat.invoiceNumber && p.invoiceId === fat.invoiceNumber) ||
+          p.id === `pay_${fat.id}` ||
+          (fat.invoiceNumber && p.id === `pay_${fat.invoiceNumber}`)
+      );
+
+      // Se a fatura foi explicitamente desmarcada para pendente pelo usuário, respeita e NÃO altera
+      const wasExplicitlyUnmarked =
+        matchingPayment &&
+        (matchingPayment.status === 'pending' || (matchingPayment as any).unmarkedAt);
+
+      if (!wasExplicitlyUnmarked) {
+        const paidAtVal =
+          matchingPayment?.paymentDate || fat.paidAt || fat.issueDate || '2026-10-02T12:00:00.000Z';
+        const paidByVal = matchingPayment?.confirmedBy || fat.paidBy || 'Administrador Neo Energia';
+
+        // Atualiza a fatura no Firestore para 'paid'
+        batch.update(doc(db, 'faturas', fat.id), {
+          status: 'paid',
+          paidAt: paidAtVal,
+          paidBy: paidByVal,
+          updatedAt: nowIso,
+        });
+
+        // Garante que o documento determinístico em pagamentos exista como 'confirmed'
+        const payDocId = `pay_${fat.id}`;
+        batch.set(
+          doc(db, 'pagamentos', payDocId),
+          {
+            id: payDocId,
+            invoiceId: fat.id,
+            clientId: fat.clientId,
+            amountPaid: fat.totalToPay,
+            paymentDate: paidAtVal,
+            confirmationMethod: 'manual',
+            confirmedBy: paidByVal,
+            status: 'confirmed',
+            createdAt: paidAtVal,
+            updatedAt: nowIso,
+          },
+          { merge: true }
+        );
+
+        count++;
+      }
+    }
+
+    if (count > 0) {
+      await batch.commit();
+      console.log(`[handleRestoreSeptemberPayments] ${count} faturas de Setembro restauradas para pagas com sucesso!`);
+    }
+
+    return { restoredCount: count };
+  };
+
   const handleCancelInvoice = async (faturaId: string, reason: string) => {
     await updateDoc(doc(db, 'faturas', faturaId), {
       status: 'cancelled',
@@ -1440,6 +1554,7 @@ function MainApp() {
               clientes={clientes}
               onConfirmPayment={handleConfirmPayment}
               onUnmarkPayment={handleUnmarkPayment}
+              onRestoreSeptemberPayments={handleRestoreSeptemberPayments}
               onOpenInvoiceModal={(fat) => setViewingFatura(fat)}
             />
           )}
