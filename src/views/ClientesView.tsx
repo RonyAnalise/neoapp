@@ -39,9 +39,7 @@ interface ClientesViewProps {
   onToggleStatus: (clienteId: string, currentStatus: 'active' | 'inactive') => Promise<void>;
   onDeleteCliente?: (clienteId: string) => Promise<void>;
   onOpenInvoiceModal: (fatura: Fatura) => void;
-  onSyncAllSeedInvoices?: () => Promise<void>;
   onOpenPortalForClient?: (clientId: string) => void;
-  isSyncing?: boolean;
 }
 
 export const ClientesView: React.FC<ClientesViewProps> = ({
@@ -54,9 +52,7 @@ export const ClientesView: React.FC<ClientesViewProps> = ({
   onToggleStatus,
   onDeleteCliente,
   onOpenInvoiceModal,
-  onSyncAllSeedInvoices,
   onOpenPortalForClient,
-  isSyncing,
 }) => {
   const { userProfile, isAdmin, clientCreateAuthAccount } = useAuth();
   const [copiedAccessText, setCopiedAccessText] = useState(false);
@@ -114,38 +110,40 @@ export const ClientesView: React.FC<ClientesViewProps> = ({
       .toLowerCase()
       .trim();
 
-  // Filter clients
-  const filteredClientes = clientes.filter((c) => {
-    const rawTerm = searchTerm.trim();
-    if (!rawTerm) {
+  // Filter clients and sort alphabetically by name
+  const filteredClientes = clientes
+    .filter((c) => {
+      const rawTerm = searchTerm.trim();
+      if (!rawTerm) {
+        const matchesStatus = statusFilter === 'all' || c.status === statusFilter;
+        const matchesCity = cityFilter === 'all' || c.city === cityFilter;
+        return matchesStatus && matchesCity;
+      }
+
+      const term = normalize(rawTerm);
+      const digitsTerm = rawTerm.replace(/\D/g, '');
+
+      const name = normalize(c.name);
+      const code = normalize(c.clientCodeCoelba);
+      const city = normalize(c.city);
+      const uc = normalize(c.consumerUnit);
+
+      const cleanCpf = (c.cpfCnpj || '').replace(/\D/g, '');
+      const cleanPhone = (c.phone || '').replace(/\D/g, '');
+
+      const matchesSearch =
+        name.includes(term) ||
+        code.includes(term) ||
+        city.includes(term) ||
+        uc.includes(term) ||
+        (digitsTerm.length >= 2 && (cleanCpf.includes(digitsTerm) || cleanPhone.includes(digitsTerm)));
+
       const matchesStatus = statusFilter === 'all' || c.status === statusFilter;
       const matchesCity = cityFilter === 'all' || c.city === cityFilter;
-      return matchesStatus && matchesCity;
-    }
 
-    const term = normalize(rawTerm);
-    const digitsTerm = rawTerm.replace(/\D/g, '');
-
-    const name = normalize(c.name);
-    const code = normalize(c.clientCodeCoelba);
-    const city = normalize(c.city);
-    const uc = normalize(c.consumerUnit);
-
-    const cleanCpf = (c.cpfCnpj || '').replace(/\D/g, '');
-    const cleanPhone = (c.phone || '').replace(/\D/g, '');
-
-    const matchesSearch =
-      name.includes(term) ||
-      code.includes(term) ||
-      city.includes(term) ||
-      uc.includes(term) ||
-      (digitsTerm.length >= 2 && (cleanCpf.includes(digitsTerm) || cleanPhone.includes(digitsTerm)));
-
-    const matchesStatus = statusFilter === 'all' || c.status === statusFilter;
-    const matchesCity = cityFilter === 'all' || c.city === cityFilter;
-
-    return matchesSearch && matchesStatus && matchesCity;
-  });
+      return matchesSearch && matchesStatus && matchesCity;
+    })
+    .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'pt-BR', { sensitivity: 'base' }));
 
   const totalPages = Math.ceil(filteredClientes.length / itemsPerPage) || 1;
   const paginatedClientes = filteredClientes.slice((page - 1) * itemsPerPage, page * itemsPerPage);
@@ -366,18 +364,6 @@ export const ClientesView: React.FC<ClientesViewProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {onSyncAllSeedInvoices && clientes.length < 38 && (
-            <button
-              onClick={onSyncAllSeedInvoices}
-              disabled={isSyncing}
-              className="flex items-center justify-center gap-2 rounded-xl bg-amber-500 hover:bg-amber-600 px-4 py-2.5 text-xs font-bold text-white transition shadow-xs cursor-pointer disabled:opacity-50"
-              title="Gravar as 38 faturas e clientes identificados das imagens no Firestore"
-            >
-              <Zap className="w-4 h-4 fill-current text-yellow-200" />
-              <span>{isSyncing ? 'Gravando no Banco...' : '⚡ Gravar 38 Faturas no Banco'}</span>
-            </button>
-          )}
-
           <button
             onClick={handleOpenNew}
             className="flex items-center justify-center gap-2 rounded-xl bg-emerald-700 px-4 py-2.5 text-xs font-bold text-white hover:bg-emerald-800 transition shadow-xs cursor-pointer"

@@ -12,6 +12,7 @@ import {
   ArrowRight,
   TrendingUp,
   Trash2,
+  Bell,
 } from 'lucide-react';
 import { Cliente, Leitura, EnergyTariffs, Fatura } from '../types';
 import {
@@ -25,6 +26,7 @@ import {
 } from '../lib/calculations';
 import { logAuditEvent } from '../lib/auditService';
 import { useAuth } from '../hooks/useAuth';
+import { SearchableClientSelect } from '../components/SearchableClientSelect';
 
 interface ConsumoViewProps {
   clientes: Cliente[];
@@ -34,6 +36,7 @@ interface ConsumoViewProps {
   onRegisterReading: (reading: Omit<Leitura, 'id' | 'createdAt'>) => Promise<void>;
   onDeleteReading?: (readingId: string) => Promise<void>;
   onNavigateToInvoice: (prefillClientId: string) => void;
+  onSendReadingReminders?: () => Promise<{ sentCount: number }>;
 }
 
 export const ConsumoView: React.FC<ConsumoViewProps> = ({
@@ -44,6 +47,7 @@ export const ConsumoView: React.FC<ConsumoViewProps> = ({
   onRegisterReading,
   onDeleteReading,
   onNavigateToInvoice,
+  onSendReadingReminders,
 }) => {
   const { userProfile, isAdmin } = useAuth();
   const currentYear = new Date().getFullYear();
@@ -73,6 +77,29 @@ export const ConsumoView: React.FC<ConsumoViewProps> = ({
   const [newMeterInitialReading, setNewMeterInitialReading] = useState<number | ''>('');
   const [swapDate, setSwapDate] = useState(new Date().toISOString().split('T')[0]);
   const [swapJustification, setSwapJustification] = useState('');
+
+  // Reminder state
+  const [sendingReminders, setSendingReminders] = useState(false);
+  const [remindersSuccessMsg, setRemindersSuccessMsg] = useState<string | null>(null);
+
+  const handleSendReminders = async () => {
+    if (!onSendReadingReminders || sendingReminders) return;
+    setSendingReminders(true);
+    setRemindersSuccessMsg(null);
+    try {
+      const res = await onSendReadingReminders();
+      setRemindersSuccessMsg(
+        res.sentCount > 0
+          ? `Lembrete de leitura enviado com sucesso no celular de ${res.sentCount} cliente(s) pendente(s) neste mês!`
+          : 'Todos os clientes ativos já possuem leitura/fatura gerada para o ciclo atual.'
+      );
+      setTimeout(() => setRemindersSuccessMsg(null), 7000);
+    } catch (err) {
+      alert('Erro ao enviar lembretes: ' + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setSendingReminders(false);
+    }
+  };
 
   // Find the last valid reading for the selected client
   const clientReadings = leituras
@@ -315,7 +342,18 @@ export const ConsumoView: React.FC<ConsumoViewProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {onSendReadingReminders && (
+            <button
+              onClick={handleSendReminders}
+              disabled={sendingReminders}
+              className="rounded-xl border border-yellow-300/40 bg-yellow-400/20 px-3.5 py-2 text-xs font-bold text-yellow-300 hover:bg-yellow-400/30 transition cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+              title="Notificar no celular todos os clientes pendentes de leitura no final do mês"
+            >
+              <Bell className={`w-4 h-4 text-yellow-300 ${sendingReminders ? 'animate-bounce' : ''}`} />
+              <span>{sendingReminders ? 'Notificando Clientes...' : 'Lembrar Leitura no Celular'}</span>
+            </button>
+          )}
           <button
             onClick={() => setMeterSwapModalOpen(true)}
             className="rounded-xl border border-white/20 bg-white/10 px-3.5 py-2 text-xs font-bold text-white hover:bg-white/20 transition cursor-pointer"
@@ -332,22 +370,27 @@ export const ConsumoView: React.FC<ConsumoViewProps> = ({
         </div>
       </div>
 
+      {remindersSuccessMsg && (
+        <div className="bg-emerald-50 border border-emerald-300 text-emerald-900 px-4 py-3 rounded-2xl text-xs font-semibold flex items-center gap-2.5 shadow-xs animate-fadeIn">
+          <Bell className="w-4 h-4 text-emerald-600 shrink-0" />
+          <span>{remindersSuccessMsg}</span>
+        </div>
+      )}
+
       {/* Filter and Client Quick List */}
       <div className="bg-white rounded-2xl p-4 sm:p-5 border border-gray-200/80 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-4">
-        <div className="flex items-center gap-3 w-full sm:w-auto">
-          <span className="text-xs font-bold text-gray-700">Filtrar por Cliente:</span>
-          <select
-            value={filterClientId}
-            onChange={(e) => setFilterClientId(e.target.value)}
-            className="rounded-xl border border-gray-300 bg-gray-50 px-3 py-1.5 text-xs font-semibold text-gray-900 focus:border-emerald-600 focus:outline-none flex-1 sm:w-72"
-          >
-            <option value="all">Todos os Clientes</option>
-            {clientes.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name} {c.clientCodeCoelba ? `(${c.clientCodeCoelba})` : ''}
-              </option>
-            ))}
-          </select>
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2.5 w-full sm:w-auto">
+          <span className="text-xs font-bold text-gray-700 whitespace-nowrap">Filtrar por Cliente:</span>
+          <div className="w-full sm:w-80">
+            <SearchableClientSelect
+              clientes={clientes}
+              selectedClientId={filterClientId}
+              onSelectClient={(cId) => setFilterClientId(cId)}
+              allowAllOption={true}
+              allOptionLabel="⚡ Todos os Clientes"
+              placeholder="🔍 Digite para filtrar cliente..."
+            />
+          </div>
         </div>
 
         <span className="text-xs text-gray-500 font-medium">
@@ -497,23 +540,14 @@ export const ConsumoView: React.FC<ConsumoViewProps> = ({
               {/* Select Client */}
               <div>
                 <label className="block font-bold text-gray-700 mb-1">Cliente Consumidor *</label>
-                <select
-                  required
-                  value={selectedClientId}
-                  onChange={(e) => setSelectedClientId(e.target.value)}
-                  className="w-full rounded-xl border border-gray-300 p-2.5 text-gray-900 focus:border-emerald-600 focus:outline-none"
-                >
-                  <option value="" disabled>
-                    Selecione um cliente
-                  </option>
-                  {clientes
-                    .filter((c) => c.status === 'active')
-                    .map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name} {c.cpfCnpj ? `• ${c.cpfCnpj}` : ''} {c.clientCodeCoelba ? `(Medidor: ${c.clientCodeCoelba})` : ''}
-                      </option>
-                    ))}
-                </select>
+                <SearchableClientSelect
+                  clientes={clientes}
+                  selectedClientId={selectedClientId}
+                  onSelectClient={(cId) => setSelectedClientId(cId)}
+                  filterActiveOnly={true}
+                  required={true}
+                  placeholder="🔍 Digite para buscar cliente consumidor..."
+                />
               </div>
 
               {/* Reference Period */}
@@ -710,22 +744,14 @@ export const ConsumoView: React.FC<ConsumoViewProps> = ({
 
             <form onSubmit={handleExecuteMeterSwap} className="space-y-3.5 text-xs">
               <div>
-                <label className="block font-bold text-gray-700 mb-1">Cliente</label>
-                <select
-                  required
-                  value={selectedClientId}
-                  onChange={(e) => setSelectedClientId(e.target.value)}
-                  className="w-full rounded-xl border border-gray-300 p-2 text-gray-900"
-                >
-                  <option value="" disabled>
-                    Selecione o cliente
-                  </option>
-                  {clientes.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
+                <label className="block font-bold text-gray-700 mb-1">Cliente *</label>
+                <SearchableClientSelect
+                  clientes={clientes}
+                  selectedClientId={selectedClientId}
+                  onSelectClient={(cId) => setSelectedClientId(cId)}
+                  required={true}
+                  placeholder="🔍 Digite para buscar cliente..."
+                />
               </div>
 
               <div>

@@ -20,6 +20,7 @@ import {
   Search,
 } from 'lucide-react';
 import { Cliente, EmpresaConfig, EnergyTariffs, Fatura } from '../types';
+import { SearchableClientSelect } from '../components/SearchableClientSelect';
 import {
   formatCurrency,
   formatNumberBr,
@@ -685,99 +686,14 @@ export const OrcamentoView: React.FC<OrcamentoViewProps> = ({
                 )}
               </div>
 
-              {/* Campo de Busca Interativo com Autocomplete (não sai da tela) */}
-              <div className="relative w-full" ref={clientSearchRef}>
-                <div className="relative flex items-center">
-                  <Search className="absolute left-3 w-4 h-4 text-gray-400 pointer-events-none" />
-                  <input
-                    type="text"
-                    value={clientSearch}
-                    onFocus={() => setIsClientSearchOpen(true)}
-                    onChange={(e) => {
-                      setClientSearch(e.target.value);
-                      setIsClientSearchOpen(true);
-                    }}
-                    placeholder="🔍 Digite para buscar cliente cadastrado..."
-                    className="w-full rounded-xl border border-gray-300 bg-gray-50 pl-9 pr-8 py-2 text-xs font-bold text-gray-900 focus:bg-white focus:border-emerald-600 focus:outline-none transition shadow-2xs"
-                  />
-                  {clientSearch && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setClientSearch('');
-                        handleSelectClient('');
-                        setIsClientSearchOpen(false);
-                      }}
-                      className="absolute right-2.5 p-1 text-gray-400 hover:text-gray-600 cursor-pointer"
-                      title="Limpar busca"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
-
-                {/* Lista suspensa contida (max-w-full com overflow-y-auto para não sair da tela) */}
-                {isClientSearchOpen && (
-                  <div className="absolute left-0 right-0 z-40 mt-1 max-h-56 w-full overflow-y-auto rounded-xl border border-gray-200 bg-white p-1.5 shadow-2xl space-y-1">
-                    {clientes.filter((c) => {
-                      if (!clientSearch.trim()) return true;
-                      const term = clientSearch.toLowerCase();
-                      const name = (c.name || '').toLowerCase();
-                      const uc = (c.consumerUnit || '').toLowerCase();
-                      const code = (c.clientCodeCoelba || '').toLowerCase();
-                      const meter = (c.meterNumber || '').toLowerCase();
-                      return name.includes(term) || uc.includes(term) || code.includes(term) || meter.includes(term);
-                    }).length === 0 ? (
-                      <div className="py-3 px-3 text-center text-xs text-gray-500">
-                        Nenhum cliente encontrado para "{clientSearch}"
-                      </div>
-                    ) : (
-                      clientes
-                        .filter((c) => {
-                          if (!clientSearch.trim()) return true;
-                          const term = clientSearch.toLowerCase();
-                          const name = (c.name || '').toLowerCase();
-                          const uc = (c.consumerUnit || '').toLowerCase();
-                          const code = (c.clientCodeCoelba || '').toLowerCase();
-                          const meter = (c.meterNumber || '').toLowerCase();
-                          return name.includes(term) || uc.includes(term) || code.includes(term) || meter.includes(term);
-                        })
-                        .slice(0, 15)
-                        .map((c) => {
-                          const isSelected = c.id === selectedClientId;
-                          return (
-                            <button
-                              key={c.id}
-                              type="button"
-                              onClick={() => {
-                                handleSelectClient(c.id);
-                                setIsClientSearchOpen(false);
-                              }}
-                              className={`w-full text-left p-2 rounded-lg transition flex items-center justify-between gap-2 cursor-pointer ${
-                                isSelected
-                                  ? 'bg-emerald-50 text-emerald-950 font-bold border border-emerald-300'
-                                  : 'hover:bg-gray-100 text-gray-800'
-                              }`}
-                            >
-                              <div className="min-w-0 flex-1">
-                                <p className="text-xs font-black truncate">{c.name}</p>
-                                <p className="text-[10px] text-gray-500 truncate">
-                                  {c.consumerUnit || c.city || ''}{' '}
-                                  {c.clientCodeCoelba ? `• Cód: ${c.clientCodeCoelba}` : ''}
-                                  {c.customCoelbaTariff
-                                    ? ` • Coelba: R$ ${formatCurrency(c.customCoelbaTariff, false, 4)}`
-                                    : ''}
-                                </p>
-                              </div>
-                              {isSelected && (
-                                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                              )}
-                            </button>
-                          );
-                        })
-                    )}
-                  </div>
-                )}
+              {/* Campo de Busca Interativo por Digitação com Autocomplete */}
+              <div className="w-full">
+                <SearchableClientSelect
+                  clientes={clientes}
+                  selectedClientId={selectedClientId}
+                  onSelectClient={(cId) => handleSelectClient(cId)}
+                  placeholder="🔍 Digite para buscar cliente cadastrado..."
+                />
               </div>
             </div>
 

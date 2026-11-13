@@ -1,5 +1,5 @@
 import { Fatura, Cliente, PushSubscriptionRecord } from '../types';
-import { formatCurrency, formatReferencePeriod } from './calculations';
+import { formatCurrency, formatReferencePeriod, MONTH_NAMES_BR } from './calculations';
 import { collection, doc, setDoc, getDocs, getDoc, query, where } from 'firebase/firestore';
 import { db } from './firebase';
 
@@ -261,10 +261,6 @@ export async function enableAndSubscribeToPush(
 
       await setDoc(doc(db, 'push_subscriptions', subDocId), record, { merge: true });
     }
-
-    try {
-      localStorage.setItem('neo_client_notifications_enabled', 'true');
-    } catch {}
 
     return { success: true, subscription: sub };
   } catch (err) {
@@ -674,3 +670,193 @@ ${portalUrl}`;
 
   return `https://wa.me/${fullPhone}?text=${encodeURIComponent(text)}`;
 }
+
+/**
+ * Notifica o celular do cliente quando o boleto bancário em PDF for anexado/lançado na fatura
+ */
+export async function notifyBoletoUploaded(
+  fatura: Fatura,
+  client?: Cliente | null
+): Promise<void> {
+  const period = formatReferencePeriod(fatura.referenceMonth, fatura.referenceYear);
+  const totalStr = formatCurrency(fatura.totalToPay);
+  const clientName = client?.name || fatura.clientName || 'Cliente';
+
+  const title = '📄 Boleto Bancário Disponível — Neo Energia';
+  const body = `Olá, ${clientName}! O boleto bancário para pagamento da sua fatura de ${period} (${totalStr}) foi anexado e já está disponível no seu Portal do Cliente.`;
+
+  // 1. Salva notificação no Firestore na coleção de notificações do cliente
+  try {
+    const notifRef = doc(collection(db, 'notificacoes'));
+    await setDoc(notifRef, {
+      clientId: fatura.clientId,
+      clientEmail: client?.email || '',
+      faturaId: fatura.id,
+      invoiceNumber: fatura.invoiceNumber,
+      referenceMonth: fatura.referenceMonth,
+      referenceYear: fatura.referenceYear,
+      totalToPay: fatura.totalToPay,
+      title,
+      message: body,
+      hasBoleto: true,
+      type: 'boleto_available',
+      read: false,
+      createdAt: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.warn('Erro ao salvar notificação de boleto no Firestore:', err);
+  }
+
+  // 2. Emite alerta in-app na tela (toast)
+  emitInAppNotification({
+    id: `boleto-${fatura.id}-${Date.now()}`,
+    title,
+    message: body,
+    timestamp: new Date().toISOString(),
+    faturaId: fatura.id,
+    hasBoleto: true,
+    totalToPay: fatura.totalToPay,
+    clientName,
+  });
+
+  // 3. Envia Web Push para o celular do cliente (notificação na barra de status)
+  await sendWebPushToClient(
+    fatura.clientId,
+    {
+      title,
+      body,
+      faturaId: fatura.id,
+      tag: `boleto-${fatura.id}`,
+      data: {
+        faturaId: fatura.id,
+        url: `${typeof window !== 'undefined' ? window.location.origin : ''}/?tab=portal_cliente`,
+      },
+    },
+    client?.email
+  );
+}
+
+/**
+ * Notifica o cliente para lembrar de registrar a leitura do medidor no final do mês
+ */
+export async function notifyMeterReadingReminder(
+  client: Cliente,
+  targetMonth: number,
+  targetYear: number
+): Promise<void> {
+  const monthName = MONTH_NAMES_BR[targetMonth - 1] || `Mês ${targetMonth}`;
+  const title = '📸 Lembrete de Leitura do Medidor — Neo Energia';
+  const body = `Olá, ${client.name}! O período para registrar a leitura do seu medidor está liberado. Acesse o portal e envie a foto do seu relógio para gerar sua fatura de ${monthName}/${targetYear}!`;
+
+  // 1. Salva notificação diretamente no Firestore
+  try {
+    const notifDocId = `remind_${client.id}_${targetMonth}_${targetYear}`;
+    const notifRef = doc(db, 'notificacoes', notifDocId);
+    await setDoc(
+      notifRef,
+      {
+        clientId: client.id,
+        clientEmail: client.email || '',
+        referenceMonth: targetMonth,
+        referenceYear: targetYear,
+        title,
+        message: body,
+        type: 'reading_reminder',
+        read: false,
+        createdAt: new Date().toISOString(),
+      },
+      { merge: true }
+    );
+  } catch (err) {
+    console.warn('Erro ao salvar notificação de lembrete de leitura no Firestore:', err);
+  }
+
+  // 2. Emite alerta in-app
+  emitInAppNotification({
+    id: `reminder-${client.id}-${Date.now()}`,
+    title,
+    message: body,
+    timestamp: new Date().toISOString(),
+    clientName: client.name,
+  });
+
+  // 3. Envia Web Push para o celular do cliente
+  await sendWebPushToClient(
+    client.id,
+    {
+      title,
+      body,
+      tag: `reminder-${targetMonth}-${targetYear}`,
+      data: {
+        url: `${typeof window !== 'undefined' ? window.location.origin : ''}/?tab=portal_cliente`,
+      },
+    },
+    client.email
+  );
+}
+
+/**
+ * Gera URL de WhatsApp para envio direto do boleto bancário ao cliente
+ */
+export function getWhatsAppBoletoNotificationUrl(
+  client: Cliente,
+  fatura: Fatura,
+  customPortalUrl?: string
+): string | null {
+  const rawPhone = client.whatsapp || client.phone;
+  if (!rawPhone) return null;
+
+  const digits = rawPhone.replace(/\D/g, '');
+  if (!digits) return null;
+
+  const fullPhone = digits.startsWith('55') && digits.length >= 12 ? digits : `55${digits}`;
+  const period = formatReferencePeriod(fatura.referenceMonth, fatura.referenceYear);
+  const total = formatCurrency(fatura.totalToPay);
+  const portalUrl = customPortalUrl || (typeof window !== 'undefined' ? window.location.origin : '');
+
+  const text = `📄 *Neo Energia — Boleto Bancário Disponível* 📄
+
+Olá, *${client.name}*!
+O boleto bancário para pagamento da sua fatura referente a *${period}* já foi anexado e está pronto para download.
+
+💰 *Total a Pagar:* ${total}
+📅 *Vencimento:* ${fatura.dueDate.split('-').reverse().join('/')}
+
+👉 *Acesse o Portal do Cliente para baixar seu boleto:*
+${portalUrl}`;
+
+  return `https://wa.me/${fullPhone}?text=${encodeURIComponent(text)}`;
+}
+
+/**
+ * Gera URL de WhatsApp para lembrar o cliente de enviar a foto da leitura no final do mês
+ */
+export function getWhatsAppReadingReminderUrl(
+  client: Cliente,
+  month: number,
+  year: number,
+  customPortalUrl?: string
+): string | null {
+  const rawPhone = client.whatsapp || client.phone;
+  if (!rawPhone) return null;
+
+  const digits = rawPhone.replace(/\D/g, '');
+  if (!digits) return null;
+
+  const fullPhone = digits.startsWith('55') && digits.length >= 12 ? digits : `55${digits}`;
+  const monthName = MONTH_NAMES_BR[month - 1] || `Mês ${month}`;
+  const portalUrl = customPortalUrl || (typeof window !== 'undefined' ? window.location.origin : '');
+
+  const text = `📸 *Neo Energia — Lembrete de Leitura do Medidor* 📸
+
+Olá, *${client.name}*!
+A leitura do seu medidor de energia para a fatura de *${monthName}/${year}* já está liberada!
+
+⚡ Tire uma foto do visor do seu medidor no seu Portal do Cliente para calcularmos seu consumo e gerarmos sua fatura com economia garantida!
+
+👉 *Acesse agora para enviar a foto e gerar a fatura:*
+${portalUrl}`;
+
+  return `https://wa.me/${fullPhone}?text=${encodeURIComponent(text)}`;
+}
+

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Users,
   CheckCircle2,
@@ -9,6 +9,15 @@ import {
   Zap,
   Calendar,
   ArrowUpRight,
+  FileCheck,
+  FileX,
+  AlertCircle,
+  Search,
+  X,
+  Plus,
+  Phone,
+  MessageCircle,
+  Eye,
 } from 'lucide-react';
 import { Cliente, Fatura } from '../types';
 import { formatCurrency, formatNumberBr, getMonthName } from '../lib/calculations';
@@ -19,63 +28,155 @@ interface DashboardViewProps {
   faturas: Fatura[];
   onNavigate: (tab: ActiveTab) => void;
   onOpenInvoiceModal?: (fatura: Fatura) => void;
+  onNavigateToInvoice?: (prefillClientId: string) => void;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
   clientes,
   faturas,
   onNavigate,
+  onOpenInvoiceModal,
+  onNavigateToInvoice,
 }) => {
   const currentYear = new Date().getFullYear();
   const currentMonth = new Date().getMonth() + 1;
 
   // Filtrar faturas desconsiderando canceladas
-  const nonCancelledInvoices = faturas.filter((f) => f.status !== 'cancelled');
+  const nonCancelledInvoices = useMemo(
+    () => faturas.filter((f) => f.status !== 'cancelled'),
+    [faturas]
+  );
 
   // Detectar a competência mais recente com dados de faturas
-  const latestInvoiceWithData = [...nonCancelledInvoices].sort((a, b) => {
-    if (a.referenceYear !== b.referenceYear) return b.referenceYear - a.referenceYear;
-    return b.referenceMonth - a.referenceMonth;
-  })[0];
+  const latestInvoiceWithData = useMemo(() => {
+    return [...nonCancelledInvoices].sort((a, b) => {
+      if (a.referenceYear !== b.referenceYear) return b.referenceYear - a.referenceYear;
+      return b.referenceMonth - a.referenceMonth;
+    })[0];
+  }, [nonCancelledInvoices]);
 
   const initialYear = latestInvoiceWithData ? latestInvoiceWithData.referenceYear : currentYear;
   const initialMonth = latestInvoiceWithData ? latestInvoiceWithData.referenceMonth : currentMonth;
 
   const [selectedYear, setSelectedYear] = useState<number>(initialYear);
   const [selectedMonth, setSelectedMonth] = useState<number | 'all'>(initialMonth);
+  const [hasInitializedSelection, setHasInitializedSelection] = useState(false);
 
-  // Auto-ajusta para a competência com faturas caso a seleção inicial esteja vazia
+  // Inicializa uma única vez na competência mais recente com faturas quando os dados carregarem
   useEffect(() => {
-    if (nonCancelledInvoices.length > 0) {
-      const hasDataInCurrentSelection = nonCancelledInvoices.some((f) => {
-        if (f.referenceYear !== selectedYear) return false;
-        if (selectedMonth === 'all') return true;
-        return f.referenceMonth === selectedMonth;
-      });
-
-      if (!hasDataInCurrentSelection) {
-        const latest = [...nonCancelledInvoices].sort((a, b) => {
-          if (a.referenceYear !== b.referenceYear) return b.referenceYear - a.referenceYear;
-          return b.referenceMonth - a.referenceMonth;
-        })[0];
-        if (latest) {
-          setSelectedYear(latest.referenceYear);
-          setSelectedMonth(latest.referenceMonth);
-        }
+    if (!hasInitializedSelection && nonCancelledInvoices.length > 0) {
+      const latest = [...nonCancelledInvoices].sort((a, b) => {
+        if (a.referenceYear !== b.referenceYear) return b.referenceYear - a.referenceYear;
+        return b.referenceMonth - a.referenceMonth;
+      })[0];
+      if (latest) {
+        setSelectedYear(latest.referenceYear);
+        setSelectedMonth(latest.referenceMonth);
       }
+      setHasInitializedSelection(true);
     }
-  }, [faturas.length, selectedYear, selectedMonth]);
+  }, [hasInitializedSelection, nonCancelledInvoices.length]);
 
   // Contagem de clientes ativos
-  const activeClientsCount = clientes.filter((c) => c.status === 'active').length;
+  const activeClients = useMemo(
+    () => clientes.filter((c) => c.status === 'active'),
+    [clientes]
+  );
+  const activeClientsCount = activeClients.length;
 
   // Faturas da competência selecionada
   const isAllMonths = selectedMonth === 'all';
-  const monthInvoices = nonCancelledInvoices.filter((f) => {
-    if (f.referenceYear !== selectedYear) return false;
-    if (isAllMonths) return true;
-    return f.referenceMonth === selectedMonth;
-  });
+  const monthInvoices = useMemo(() => {
+    return nonCancelledInvoices.filter((f) => {
+      if (f.referenceYear !== selectedYear) return false;
+      if (isAllMonths) return true;
+      return f.referenceMonth === selectedMonth;
+    });
+  }, [nonCancelledInvoices, selectedYear, selectedMonth, isAllMonths]);
+
+  // Função utilitária para verificar se um cliente tem fatura emitida
+  const clientHasInvoice = (client: Cliente, invList: Fatura[]) => {
+    return invList.some((f) => {
+      if (f.clientId && f.clientId === client.id) return true;
+      if (
+        client.meterNumber &&
+        f.meterNumber &&
+        f.meterNumber.trim().toLowerCase() === client.meterNumber.trim().toLowerCase()
+      ) {
+        return true;
+      }
+      if (
+        client.consumerUnit &&
+        f.consumerUnit &&
+        f.consumerUnit.trim().toLowerCase() === client.consumerUnit.trim().toLowerCase()
+      ) {
+        return true;
+      }
+      return false;
+    });
+  };
+
+  // Clientes com e sem fatura no mês selecionado
+  const clientsWithInvoice = useMemo(() => {
+    return activeClients.filter((c) => clientHasInvoice(c, monthInvoices));
+  }, [activeClients, monthInvoices]);
+
+  const clientsWithoutInvoice = useMemo(() => {
+    return activeClients.filter((c) => !clientHasInvoice(c, monthInvoices));
+  }, [activeClients, monthInvoices]);
+
+  const countGenerated = clientsWithInvoice.length;
+  const countPendingGeneration = clientsWithoutInvoice.length;
+  const generationPercent =
+    activeClientsCount > 0 ? Math.round((countGenerated / activeClientsCount) * 100) : 0;
+
+  // Modal de listagem de clientes (emitidas vs pendentes)
+  const [emissionModalOpen, setEmissionModalOpen] = useState(false);
+  const [emissionModalTab, setEmissionModalTab] = useState<'pending' | 'generated'>('pending');
+  const [modalSearch, setModalSearch] = useState('');
+
+  const filteredPendingClients = useMemo(() => {
+    if (!modalSearch.trim()) return clientsWithoutInvoice;
+    const q = modalSearch.toLowerCase().trim();
+    return clientsWithoutInvoice.filter(
+      (c) =>
+        c.name.toLowerCase().includes(q) ||
+        (c.meterNumber && c.meterNumber.toLowerCase().includes(q)) ||
+        (c.cpfCnpj && c.cpfCnpj.includes(q)) ||
+        (c.consumerUnit && c.consumerUnit.toLowerCase().includes(q))
+    );
+  }, [clientsWithoutInvoice, modalSearch]);
+
+  const filteredGeneratedClients = useMemo(() => {
+    if (!modalSearch.trim()) return clientsWithInvoice;
+    const q = modalSearch.toLowerCase().trim();
+    return clientsWithInvoice.filter(
+      (c) =>
+        c.name.toLowerCase().includes(q) ||
+        (c.meterNumber && c.meterNumber.toLowerCase().includes(q)) ||
+        (c.cpfCnpj && c.cpfCnpj.includes(q)) ||
+        (c.consumerUnit && c.consumerUnit.toLowerCase().includes(q))
+    );
+  }, [clientsWithInvoice, modalSearch]);
+
+  const getInvoiceForClient = (client: Cliente) => {
+    return monthInvoices.find(
+      (f) =>
+        f.clientId === client.id ||
+        (client.meterNumber &&
+          f.meterNumber &&
+          f.meterNumber.trim().toLowerCase() === client.meterNumber.trim().toLowerCase())
+    );
+  };
+
+  const handleIssueForClient = (clientId: string) => {
+    setEmissionModalOpen(false);
+    if (onNavigateToInvoice) {
+      onNavigateToInvoice(clientId);
+    } else {
+      onNavigate('faturas');
+    }
+  };
 
   const pendingInvoices = monthInvoices.filter((f) => f.status === 'pending');
   const paidInvoices = monthInvoices.filter((f) => f.status === 'paid');
@@ -175,6 +276,186 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           >
             + Emitir Fatura
           </button>
+        </div>
+      </div>
+
+      {/* Seção Principal: Emissão de Faturas na Competência Selecionada */}
+      <div className="bg-white rounded-2xl p-5 border border-gray-200/80 shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-gray-100">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center justify-center w-7 h-7 rounded-xl bg-emerald-100 text-emerald-800">
+                <FileCheck className="w-4 h-4" />
+              </span>
+              <h3 className="text-base font-black text-gray-900">
+                Status de Emissão de Faturas — {isAllMonths ? `Geral ${selectedYear}` : `${getMonthName(selectedMonth)}/${selectedYear}`}
+              </h3>
+            </div>
+            <p className="text-xs text-gray-500 mt-1">
+              Controle de faturamento dos clientes ativos de acordo com o mês selecionado ({isAllMonths ? `Ano ${selectedYear}` : `${getMonthName(selectedMonth)} de ${selectedYear}`}).
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span
+              className={`text-xs font-bold px-3 py-1.5 rounded-xl border flex items-center gap-1.5 ${
+                countPendingGeneration === 0 && activeClientsCount > 0
+                  ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                  : 'bg-amber-50 text-amber-900 border-amber-200'
+              }`}
+            >
+              {countPendingGeneration === 0 && activeClientsCount > 0 ? (
+                <>
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>100% dos Clientes Faturados</span>
+                </>
+              ) : (
+                <>
+                  <AlertCircle className="w-3.5 h-3.5 text-amber-600" />
+                  <span>{countPendingGeneration} cliente(s) aguardando fatura</span>
+                </>
+              )}
+            </span>
+          </div>
+        </div>
+
+        {/* Dual Cards: Já Geradas vs Ainda Sem Fatura */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Card 1: Faturas Já Geradas */}
+          <div
+            onClick={() => {
+              setEmissionModalTab('generated');
+              setModalSearch('');
+              setEmissionModalOpen(true);
+            }}
+            className="group relative overflow-hidden rounded-2xl p-5 border border-emerald-200 bg-gradient-to-br from-emerald-50/80 via-white to-emerald-50/30 hover:border-emerald-400 hover:shadow-md transition cursor-pointer"
+          >
+            <div className="flex items-start justify-between">
+              <div>
+                <span className="text-[11px] font-black uppercase tracking-wider text-emerald-800 bg-emerald-100/90 px-2.5 py-0.5 rounded-md inline-block">
+                  ✓ Faturas Já Geradas
+                </span>
+                <div className="flex items-baseline gap-2 mt-2.5">
+                  <h4 className="text-3xl font-black text-emerald-950">{countGenerated}</h4>
+                  <span className="text-xs font-bold text-gray-600">
+                    de {activeClientsCount} clientes ativos ({generationPercent}%)
+                  </span>
+                </div>
+                <p className="text-xs text-emerald-800 mt-1 font-medium">
+                  {monthInvoices.length} fatura(s) cadastrada(s) para este período
+                </p>
+              </div>
+              <div className="w-12 h-12 rounded-2xl bg-emerald-600 text-white flex items-center justify-center shadow-xs group-hover:scale-105 transition shrink-0">
+                <FileCheck className="w-6 h-6" />
+              </div>
+            </div>
+
+            {/* Barra de Progresso */}
+            <div className="mt-4">
+              <div className="h-2.5 w-full bg-emerald-100/80 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-emerald-600 rounded-full transition-all duration-500"
+                  style={{ width: `${generationPercent}%` }}
+                />
+              </div>
+            </div>
+
+            <div className="mt-3.5 flex items-center justify-between text-xs">
+              <span className="text-emerald-700 font-bold group-hover:underline flex items-center gap-1">
+                Ver lista de clientes já faturados ({countGenerated}) <ArrowUpRight className="w-3.5 h-3.5" />
+              </span>
+              <span className="text-[11px] text-gray-400 font-medium">Clique para ver</span>
+            </div>
+          </div>
+
+          {/* Card 2: Clientes Sem Fatura no Mês */}
+          <div
+            onClick={() => {
+              setEmissionModalTab('pending');
+              setModalSearch('');
+              setEmissionModalOpen(true);
+            }}
+            className={`group relative overflow-hidden rounded-2xl p-5 border transition cursor-pointer ${
+              countPendingGeneration > 0
+                ? 'border-amber-300 bg-gradient-to-br from-amber-50/90 via-white to-amber-50/40 hover:border-amber-400 hover:shadow-md'
+                : 'border-gray-200 bg-gradient-to-br from-gray-50/60 via-white to-gray-50/20 hover:border-gray-300'
+            }`}
+          >
+            <div className="flex items-start justify-between">
+              <div>
+                <span
+                  className={`text-[11px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-md inline-block ${
+                    countPendingGeneration > 0
+                      ? 'text-amber-900 bg-amber-100 font-bold'
+                      : 'text-gray-600 bg-gray-100'
+                  }`}
+                >
+                  {countPendingGeneration > 0 ? '⚠️ Ainda Sem Fatura Gerada' : '✨ 0 Pendentes'}
+                </span>
+                <div className="flex items-baseline gap-2 mt-2.5">
+                  <h4
+                    className={`text-3xl font-black ${
+                      countPendingGeneration > 0 ? 'text-amber-950' : 'text-gray-900'
+                    }`}
+                  >
+                    {countPendingGeneration}
+                  </h4>
+                  <span className="text-xs font-bold text-gray-600">
+                    {countPendingGeneration === 1 ? 'cliente sem fatura' : 'clientes sem fatura'}
+                  </span>
+                </div>
+                <p
+                  className={`text-xs mt-1 font-medium ${
+                    countPendingGeneration > 0 ? 'text-amber-800 font-semibold' : 'text-gray-500'
+                  }`}
+                >
+                  {countPendingGeneration > 0
+                    ? `Aguardando leitura e geração da fatura deste mês`
+                    : `Todos os ${activeClientsCount} clientes ativos já possuem fatura gerada!`}
+                </p>
+              </div>
+              <div
+                className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-xs group-hover:scale-105 transition shrink-0 ${
+                  countPendingGeneration > 0
+                    ? 'bg-amber-500 text-white'
+                    : 'bg-emerald-100 text-emerald-700'
+                }`}
+              >
+                {countPendingGeneration > 0 ? (
+                  <FileX className="w-6 h-6" />
+                ) : (
+                  <CheckCircle2 className="w-6 h-6" />
+                )}
+              </div>
+            </div>
+
+            {/* Barra de Progresso Complementar */}
+            <div className="mt-4">
+              <div className="h-2.5 w-full bg-gray-100 rounded-full overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all duration-500 ${
+                    countPendingGeneration > 0 ? 'bg-amber-500' : 'bg-emerald-500'
+                  }`}
+                  style={{ width: `${100 - generationPercent}%` }}
+                />
+              </div>
+            </div>
+
+            <div className="mt-3.5 flex items-center justify-between text-xs">
+              <span
+                className={`font-bold group-hover:underline flex items-center gap-1 ${
+                  countPendingGeneration > 0 ? 'text-amber-800' : 'text-gray-600'
+                }`}
+              >
+                {countPendingGeneration > 0 ? (
+                  <>Ver quem ainda falta emitir ({countPendingGeneration}) <ArrowUpRight className="w-3.5 h-3.5" /></>
+                ) : (
+                  <>Ver todos os clientes <ArrowUpRight className="w-3.5 h-3.5" /></>
+                )}
+              </span>
+              <span className="text-[11px] text-gray-400 font-medium">Clique para ver</span>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -422,6 +703,246 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Modal de Detalhes de Emissão de Faturas */}
+      {emissionModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fadeIn">
+          <div className="bg-white rounded-3xl max-w-3xl w-full max-h-[90vh] shadow-2xl flex flex-col overflow-hidden border border-gray-100">
+            {/* Cabeçalho do Modal */}
+            <div className="px-6 py-5 bg-gradient-to-r from-emerald-950 via-[#0d4f27] to-[#1b7a3e] text-white flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-white/10 flex items-center justify-center border border-white/20">
+                  <FileCheck className="w-5 h-5 text-yellow-300" />
+                </div>
+                <div>
+                  <h3 className="text-base sm:text-lg font-black tracking-tight text-white">
+                    Emissão de Faturas na Competência
+                  </h3>
+                  <p className="text-xs text-emerald-100 mt-0.5">
+                    {isAllMonths ? `Geral ${selectedYear}` : `${getMonthName(selectedMonth)} de ${selectedYear}`} • {activeClientsCount} clientes ativos
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setEmissionModalOpen(false)}
+                className="w-9 h-9 rounded-xl bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Abas e Busca */}
+            <div className="p-5 border-b border-gray-100 bg-gray-50/60 shrink-0 space-y-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={() => setEmissionModalTab('pending')}
+                  className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
+                    emissionModalTab === 'pending'
+                      ? 'bg-amber-500 text-white shadow-xs'
+                      : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-100'
+                  }`}
+                >
+                  <FileX className="w-4 h-4" />
+                  <span>Ainda Sem Fatura ({countPendingGeneration})</span>
+                </button>
+                <button
+                  onClick={() => setEmissionModalTab('generated')}
+                  className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
+                    emissionModalTab === 'generated'
+                      ? 'bg-emerald-700 text-white shadow-xs'
+                      : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-100'
+                  }`}
+                >
+                  <FileCheck className="w-4 h-4" />
+                  <span>Faturas Já Geradas ({countGenerated})</span>
+                </button>
+              </div>
+
+              <div className="relative">
+                <Search className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={modalSearch}
+                  onChange={(e) => setModalSearch(e.target.value)}
+                  placeholder="Pesquisar por nome do cliente, número do medidor, CPF/CNPJ..."
+                  className="w-full pl-10 pr-4 py-2 bg-white border border-gray-200 rounded-xl text-xs text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition"
+                />
+              </div>
+            </div>
+
+            {/* Lista com Rolagem */}
+            <div className="p-5 overflow-y-auto max-h-[50vh] divide-y divide-gray-100 space-y-3">
+              {emissionModalTab === 'pending' ? (
+                filteredPendingClients.length === 0 ? (
+                  <div className="text-center py-10">
+                    <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto mb-2" />
+                    <h4 className="text-sm font-bold text-gray-800">
+                      {countPendingGeneration === 0
+                        ? 'Tudo 100% faturado!'
+                        : 'Nenhum cliente encontrado com este filtro.'}
+                    </h4>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {countPendingGeneration === 0
+                        ? `Todos os ${activeClientsCount} clientes ativos já possuem fatura gerada para este mês.`
+                        : 'Tente buscar com outro termo ou limpe a pesquisa.'}
+                    </p>
+                  </div>
+                ) : (
+                  filteredPendingClients.map((c) => (
+                    <div
+                      key={c.id}
+                      className="pt-3 first:pt-0 flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-2xl hover:bg-gray-50 transition"
+                    >
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-sm text-gray-900">{c.name}</span>
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-100 text-amber-900">
+                            Sem Fatura
+                          </span>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
+                          {c.meterNumber && (
+                            <span className="font-semibold text-gray-700">
+                              Medidor: <strong className="text-emerald-800">{c.meterNumber}</strong>
+                            </span>
+                          )}
+                          {c.consumerUnit && (
+                            <span>UC: {c.consumerUnit}</span>
+                          )}
+                          {c.cpfCnpj && (
+                            <span>CPF/CNPJ: {c.cpfCnpj}</span>
+                          )}
+                          {c.phone && (
+                            <span className="flex items-center gap-1 text-gray-600">
+                              <Phone className="w-3 h-3 text-gray-400" />
+                              {c.phone}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          onClick={() => {
+                            setEmissionModalOpen(false);
+                            onNavigate('consumo');
+                          }}
+                          className="px-3 py-1.5 rounded-xl border border-gray-200 bg-white text-xs font-bold text-gray-700 hover:bg-gray-100 transition cursor-pointer"
+                        >
+                          Lançar Leitura
+                        </button>
+                        <button
+                          onClick={() => handleIssueForClient(c.id)}
+                          className="px-3.5 py-1.5 rounded-xl bg-emerald-700 text-xs font-bold text-white hover:bg-emerald-800 transition shadow-xs flex items-center gap-1 cursor-pointer"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>Emitir Fatura</span>
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )
+              ) : (
+                filteredGeneratedClients.length === 0 ? (
+                  <div className="text-center py-10">
+                    <FileX className="w-12 h-12 text-gray-300 mx-auto mb-2" />
+                    <h4 className="text-sm font-bold text-gray-800">
+                      Nenhuma fatura gerada encontrada.
+                    </h4>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {countGenerated === 0
+                        ? `Ainda não foi gerada nenhuma fatura para este mês.`
+                        : 'Nenhum cliente corresponde ao filtro de busca.'}
+                    </p>
+                  </div>
+                ) : (
+                  filteredGeneratedClients.map((c) => {
+                    const inv = getInvoiceForClient(c);
+                    return (
+                      <div
+                        key={c.id}
+                        className="pt-3 first:pt-0 flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-2xl hover:bg-gray-50 transition"
+                      >
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-sm text-gray-900">{c.name}</span>
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800">
+                              Faturado
+                            </span>
+                            {inv && (
+                              <span
+                                className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-md ${
+                                  inv.status === 'paid'
+                                    ? 'bg-emerald-100 text-emerald-800'
+                                    : inv.status === 'overdue'
+                                    ? 'bg-rose-100 text-rose-800'
+                                    : 'bg-amber-100 text-amber-800'
+                                }`}
+                              >
+                                {inv.status === 'paid'
+                                  ? 'Paga'
+                                  : inv.status === 'overdue'
+                                  ? 'Vencida'
+                                  : 'Pendente'}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
+                            {c.meterNumber && (
+                              <span className="font-semibold text-gray-700">
+                                Medidor: <strong className="text-emerald-800">{c.meterNumber}</strong>
+                              </span>
+                            )}
+                            {inv && (
+                              <>
+                                <span className="font-medium text-gray-700">
+                                  Fatura: <strong>#{inv.invoiceNumber}</strong>
+                                </span>
+                                <span className="font-black text-emerald-800">
+                                  {formatCurrency(inv.totalToPay)}
+                                </span>
+                                <span>{formatNumberBr(inv.consumptionKwh)} kWh</span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          {inv && onOpenInvoiceModal && (
+                            <button
+                              onClick={() => {
+                                setEmissionModalOpen(false);
+                                onOpenInvoiceModal(inv);
+                              }}
+                              className="px-3.5 py-1.5 rounded-xl border border-emerald-600/30 bg-emerald-50 text-xs font-bold text-emerald-800 hover:bg-emerald-100 transition flex items-center gap-1 cursor-pointer"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                              <span>Ver Fatura</span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })
+                )
+              )}
+            </div>
+
+            {/* Rodapé do Modal */}
+            <div className="px-6 py-4 bg-gray-50 border-t border-gray-100 flex items-center justify-between text-xs text-gray-500 shrink-0">
+              <span>
+                Exibindo {emissionModalTab === 'pending' ? filteredPendingClients.length : filteredGeneratedClients.length} de {activeClientsCount} clientes ativos
+              </span>
+              <button
+                onClick={() => setEmissionModalOpen(false)}
+                className="px-4 py-2 rounded-xl bg-gray-200 text-gray-800 font-bold hover:bg-gray-300 transition cursor-pointer"
+              >
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

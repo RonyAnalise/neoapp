@@ -53,8 +53,6 @@ interface FaturasViewProps {
   onCancelInvoice: (faturaId: string, reason: string) => Promise<void>;
   onDeleteInvoice?: (faturaId: string) => Promise<void>;
   onOpenInvoiceModal: (fatura: Fatura) => void;
-  onSyncAllSeedInvoices?: () => Promise<void>;
-  isSyncing?: boolean;
 }
 
 export const FaturasView: React.FC<FaturasViewProps> = ({
@@ -71,8 +69,6 @@ export const FaturasView: React.FC<FaturasViewProps> = ({
   onCancelInvoice,
   onDeleteInvoice,
   onOpenInvoiceModal,
-  onSyncAllSeedInvoices,
-  isSyncing,
 }) => {
   const { userProfile, isAdmin } = useAuth();
   const currentYear = new Date().getFullYear();
@@ -634,6 +630,10 @@ export const FaturasView: React.FC<FaturasViewProps> = ({
       return matchesSearch && matchesStatus && matchesMonth && matchesYear;
     })
     .sort((a, b) => {
+      // Ordenação por vencimento decrescente (mais recente/futuro para o mais antigo)
+      const timeA = a.dueDate ? new Date(a.dueDate).getTime() : 0;
+      const timeB = b.dueDate ? new Date(b.dueDate).getTime() : 0;
+      if (timeB !== timeA) return timeB - timeA;
       if (a.referenceYear !== b.referenceYear) return b.referenceYear - a.referenceYear;
       return b.referenceMonth - a.referenceMonth;
     });
@@ -835,18 +835,6 @@ export const FaturasView: React.FC<FaturasViewProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {onSyncAllSeedInvoices && faturas.length < 38 && (
-            <button
-              onClick={onSyncAllSeedInvoices}
-              disabled={isSyncing}
-              className="flex items-center justify-center gap-2 rounded-xl bg-amber-500 hover:bg-amber-600 px-4 py-2.5 text-xs font-bold text-white transition shadow-xs cursor-pointer disabled:opacity-50"
-              title="Gravar as 38 faturas e clientes identificados das imagens no Firestore"
-            >
-              <Zap className="w-4 h-4 fill-current text-yellow-200" />
-              <span>{isSyncing ? 'Gravando no Banco...' : '⚡ Gravar 38 Faturas no Banco'}</span>
-            </button>
-          )}
-
           <button
             onClick={() => handleOpenCreate()}
             className="flex items-center justify-center gap-2 rounded-xl bg-emerald-700 px-4 py-2.5 text-xs font-bold text-white hover:bg-emerald-800 transition shadow-xs cursor-pointer"
@@ -857,65 +845,109 @@ export const FaturasView: React.FC<FaturasViewProps> = ({
         </div>
       </div>
 
-      {/* Faturas Table */}
-      <div className="bg-white rounded-2xl border border-gray-200/80 shadow-xs overflow-hidden">
-        <div className="overflow-x-auto lg:overflow-x-visible">
-          <table className="w-full text-left text-xs">
-            <thead className="bg-gray-50 border-b border-gray-200 text-gray-600 font-bold uppercase text-[10px] tracking-wider">
-              <tr>
-                <th className="py-3 px-4">Cliente</th>
-                <th className="py-3 px-3">Competência</th>
-                <th className="py-3 px-3">Total a Pagar</th>
-                <th className="py-3 px-3">Vencimento</th>
-                <th className="py-3 px-3 text-center">Boleto</th>
-                <th className="py-3 px-3 text-center">Situação</th>
-                <th className="py-3 px-4 text-right">Ações</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {filteredFaturas.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="py-12 text-center text-gray-400">
-                    Nenhuma fatura encontrada para os filtros selecionados.
-                  </td>
-                </tr>
-              ) : (
-                filteredFaturas.map((fat) => {
-                  const cli = clientes.find((c) => c.id === fat.clientId);
-                  const meterDisplay = fat.meterNumber || cli?.meterNumber;
-                  const ucDisplay = fat.consumerUnit || cli?.consumerUnit || cli?.clientCodeCoelba;
-                  return (
-                  <tr key={fat.id} className="hover:bg-gray-50/60 transition">
-                    <td className="py-3 px-4">
-                      <div className="font-bold text-gray-900">{fat.clientName || cli?.name || 'Cliente'}</div>
-                      <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
-                        <span className="text-[10px] text-gray-400 font-mono">#{fat.invoiceNumber}</span>
-                        {meterDisplay && (
-                          <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
-                            Medidor: {meterDisplay}
-                          </span>
-                        )}
-                        {ucDisplay && (
-                          <span className="text-[10px] text-gray-500 font-mono">
-                            UC: {ucDisplay}
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="py-3 px-3 font-semibold text-gray-800 whitespace-nowrap">
-                      {formatReferencePeriod(fat.referenceMonth, fat.referenceYear)}
-                    </td>
-                    <td className="py-3 px-3 font-black text-emerald-800 text-sm whitespace-nowrap">
-                      {formatCurrency(fat.totalToPay)}
-                    </td>
-                    <td className="py-3 px-3 text-gray-700 whitespace-nowrap">{formatDateBr(fat.dueDate)}</td>
-                    <td className="py-3 px-4 text-center">
-                      {fat.status === 'paid' ? (
+      {/* Lista de Faturas em 2 Linhas (Sem barra horizontal) */}
+      <div className="bg-white rounded-2xl border border-gray-200/80 shadow-xs overflow-hidden divide-y divide-gray-100">
+        {filteredFaturas.length === 0 ? (
+          <div className="py-12 text-center text-gray-400 text-xs">
+            Nenhuma fatura encontrada para os filtros selecionados.
+          </div>
+        ) : (
+          filteredFaturas.map((fat) => {
+            const cli = clientes.find((c) => c.id === fat.clientId);
+            const meterDisplay = fat.meterNumber || cli?.meterNumber;
+            const ucDisplay = fat.consumerUnit || cli?.consumerUnit || cli?.clientCodeCoelba;
+            const isOverdue = fat.status === 'overdue';
+            const isPaid = fat.status === 'paid';
+            const isCancelled = fat.status === 'cancelled';
+            const waUrl = cli ? getWhatsAppNotificationUrl(cli, fat) : null;
+
+            return (
+              <div
+                key={fat.id}
+                className="p-3.5 sm:p-4 hover:bg-gray-50/70 transition flex flex-col gap-2"
+              >
+                {/* LINHA 1: Cliente, Número, Medidor, Status | Competência, Vencimento e Total a Pagar */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  {/* Esquerda: Identificação */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-bold text-gray-900 text-sm">
+                      {fat.clientName || cli?.name || 'Cliente'}
+                    </span>
+                    <span className="text-[11px] text-gray-400 font-mono">
+                      #{fat.invoiceNumber}
+                    </span>
+                    {meterDisplay && (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                        Medidor: {meterDisplay}
+                      </span>
+                    )}
+                    <span
+                      className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase ${
+                        isPaid
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : isOverdue
+                          ? 'bg-rose-100 text-rose-800'
+                          : isCancelled
+                          ? 'bg-gray-200 text-gray-600 line-through'
+                          : 'bg-amber-100 text-amber-800'
+                      }`}
+                    >
+                      {isPaid ? 'PAGA' : isOverdue ? 'VENCIDA' : isCancelled ? 'CANCELADA' : 'PENDENTE'}
+                    </span>
+                  </div>
+
+                  {/* Direita: Valores e Datas */}
+                  <div className="flex items-center gap-3 sm:gap-4 shrink-0">
+                    <div className="text-left sm:text-right">
+                      <span className="text-xs font-semibold text-gray-700 block">
+                        {formatReferencePeriod(fat.referenceMonth, fat.referenceYear)}
+                      </span>
+                      <span
+                        className={`text-[11px] block ${
+                          isOverdue ? 'text-rose-600 font-bold' : 'text-gray-500'
+                        }`}
+                      >
+                        Venc: {formatDateBr(fat.dueDate)}
+                      </span>
+                    </div>
+
+                    <div className="text-left sm:text-right min-w-[95px]">
+                      <span className="text-base font-black text-emerald-800 block leading-tight">
+                        {formatCurrency(fat.totalToPay)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* LINHA 2: Consumo, Economia, UC, Boleto, WhatsApp | Ações */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1 border-t border-gray-100/90 text-xs">
+                  {/* Esquerda: Informações Técnicas e Boleto */}
+                  <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-gray-500">
+                    <span className="inline-flex items-center gap-1 font-medium text-gray-700">
+                      <span className="text-amber-500">⚡</span>
+                      <strong>{formatNumberBr(fat.consumptionKwh)}</strong> kWh
+                    </span>
+
+                    {fat.savingsAmount > 0 && (
+                      <span className="text-[11px] font-semibold text-orange-600">
+                        Economia: {formatCurrency(fat.savingsAmount)}
+                      </span>
+                    )}
+
+                    {ucDisplay && (
+                      <span className="text-[11px] text-gray-400 font-mono hidden md:inline">
+                        UC: {ucDisplay}
+                      </span>
+                    )}
+
+                    {/* Boleto Status / Ação */}
+                    <div className="inline-flex items-center gap-1">
+                      {isPaid ? (
                         <span
-                          className="inline-block text-[10px] text-gray-400 font-medium italic"
+                          className="text-[10px] text-gray-400 font-medium italic"
                           title="Boleto bancário excluído do Firebase automaticamente após confirmação de pagamento"
                         >
-                          Excluído (Pago)
+                          📄 Boleto: Excluído (Pago)
                         </span>
                       ) : fat.boletoBase64 ? (
                         <div className="inline-flex items-center gap-1">
@@ -925,7 +957,7 @@ export const FaturasView: React.FC<FaturasViewProps> = ({
                             title="Gerenciar ou substituir boleto bancário"
                           >
                             <Paperclip className="w-3 h-3" />
-                            <span>Anexado</span>
+                            <span>Boleto Anexado</span>
                           </button>
                           <button
                             onClick={() =>
@@ -943,128 +975,102 @@ export const FaturasView: React.FC<FaturasViewProps> = ({
                       ) : (
                         <button
                           onClick={() => setBoletoModalFatura(fat)}
-                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-gray-100 text-gray-500 hover:bg-gray-200 transition cursor-pointer"
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-gray-100 text-gray-600 hover:bg-gray-200 transition cursor-pointer"
                           title="Anexar boleto PDF no banco"
                         >
                           <Paperclip className="w-3 h-3" />
-                          <span>Sem Boleto</span>
+                          <span>+ Anexar Boleto</span>
                         </button>
                       )}
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      <span
-                        className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                          fat.status === 'paid'
-                            ? 'bg-emerald-100 text-emerald-800'
-                            : fat.status === 'overdue'
-                            ? 'bg-rose-100 text-rose-800'
-                            : fat.status === 'cancelled'
-                            ? 'bg-gray-200 text-gray-600 line-through'
-                            : 'bg-amber-100 text-amber-800'
-                        }`}
+                    </div>
+
+                    {/* WhatsApp */}
+                    {waUrl && (
+                      <a
+                        href={waUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold border border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition cursor-pointer"
+                        title="Avisar cliente no WhatsApp"
                       >
-                        {fat.status === 'paid'
-                          ? 'PAGA'
-                          : fat.status === 'overdue'
-                          ? 'VENCIDA'
-                          : fat.status === 'cancelled'
-                          ? 'CANCELADA'
-                          : 'PENDENTE'}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-right">
-                      <div className="flex items-center justify-end gap-1.5">
-                        <button
-                          onClick={() => onOpenInvoiceModal(fat)}
-                          className="flex items-center gap-1 rounded-lg bg-emerald-50 border border-emerald-200 px-2.5 py-1 text-xs font-bold text-emerald-800 hover:bg-emerald-100 transition"
-                          title="Visualizar fatura e baixar PDF"
-                        >
-                          <Eye className="w-3.5 h-3.5" />
-                          <span>Fatura</span>
-                        </button>
+                        <MessageCircle className="w-3 h-3 text-emerald-600" />
+                        <span>Avisar no WhatsApp</span>
+                      </a>
+                    )}
+                  </div>
 
-                        {onUpdateInvoice && (
-                          <button
-                            onClick={() => handleOpenEdit(fat)}
-                            className="flex items-center gap-1 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 px-2.5 py-1 text-xs font-bold text-gray-700 transition cursor-pointer shadow-2xs"
-                            title="Editar valores e dados da fatura"
-                          >
-                            <Edit3 className="w-3.5 h-3.5 text-blue-600" />
-                            <span>Editar</span>
-                          </button>
-                        )}
+                  {/* Direita: Botões de Ação */}
+                  <div className="flex flex-wrap items-center gap-1.5 self-end sm:self-auto shrink-0">
+                    <button
+                      onClick={() => onOpenInvoiceModal(fat)}
+                      className="flex items-center gap-1 rounded-lg bg-emerald-50 border border-emerald-200 px-2.5 py-1 text-xs font-bold text-emerald-800 hover:bg-emerald-100 transition cursor-pointer shadow-2xs"
+                      title="Visualizar fatura e baixar PDF"
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                      <span>Fatura</span>
+                    </button>
 
-                        {(() => {
-                          const cli = clientes.find((c) => c.id === fat.clientId);
-                          if (!cli) return null;
-                          const waUrl = getWhatsAppNotificationUrl(cli, fat);
-                          if (!waUrl) return null;
-                          return (
-                            <a
-                              href={waUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="p-1 rounded-lg border border-emerald-200 text-emerald-600 hover:bg-emerald-50 transition cursor-pointer"
-                              title="Avisar cliente no WhatsApp"
-                            >
-                              <MessageCircle className="w-3.5 h-3.5 text-emerald-700" />
-                            </a>
-                          );
-                        })()}
+                    {onUpdateInvoice && (
+                      <button
+                        onClick={() => handleOpenEdit(fat)}
+                        className="flex items-center gap-1 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 px-2.5 py-1 text-xs font-bold text-gray-700 transition cursor-pointer shadow-2xs"
+                        title="Editar valores e dados da fatura"
+                      >
+                        <Edit3 className="w-3.5 h-3.5 text-blue-600" />
+                        <span>Editar</span>
+                      </button>
+                    )}
 
-                        {fat.status !== 'paid' && fat.status !== 'cancelled' && (
-                          <button
-                            onClick={() => handleOpenConfirmPayment(fat)}
-                            className="flex items-center gap-1 rounded-lg bg-emerald-700 px-2.5 py-1 text-xs font-bold text-white hover:bg-emerald-800 transition"
-                            title="Confirmar pagamento da fatura"
-                          >
-                            <CheckCircle className="w-3.5 h-3.5" />
-                            <span>Pagar</span>
-                          </button>
-                        )}
+                    {!isPaid && !isCancelled && (
+                      <button
+                        onClick={() => handleOpenConfirmPayment(fat)}
+                        className="flex items-center gap-1 rounded-lg bg-emerald-700 px-2.5 py-1 text-xs font-bold text-white hover:bg-emerald-800 transition cursor-pointer shadow-2xs"
+                        title="Confirmar pagamento da fatura"
+                      >
+                        <CheckCircle className="w-3.5 h-3.5" />
+                        <span>Pagar</span>
+                      </button>
+                    )}
 
-                        {fat.status === 'paid' && onUnmarkPayment && (
-                          <button
-                            onClick={() => handleOpenUnmarkPayment(fat)}
-                            className="flex items-center gap-1 rounded-lg bg-amber-50 border border-amber-200 px-2 py-1 text-xs font-bold text-amber-800 hover:bg-amber-100 transition cursor-pointer shadow-2xs"
-                            title="Desmarcar pagamento e fazer a fatura voltar ao status Pendente"
-                          >
-                            <RotateCcw className="w-3.5 h-3.5 text-amber-600" />
-                            <span>Desmarcar</span>
-                          </button>
-                        )}
+                    {isPaid && onUnmarkPayment && (
+                      <button
+                        onClick={() => handleOpenUnmarkPayment(fat)}
+                        className="flex items-center gap-1 rounded-lg bg-amber-50 border border-amber-200 px-2 py-1 text-xs font-bold text-amber-800 hover:bg-amber-100 transition cursor-pointer shadow-2xs"
+                        title="Desmarcar pagamento e fazer a fatura voltar ao status Pendente"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5 text-amber-600" />
+                        <span>Desmarcar</span>
+                      </button>
+                    )}
 
-                        {isAdmin && fat.status !== 'cancelled' && fat.status !== 'paid' && (
-                          <button
-                            onClick={() => handleOpenCancel(fat)}
-                            className="p-1 rounded-lg border border-rose-200 text-rose-600 hover:bg-rose-50 transition"
-                            title="Cancelar fatura"
-                          >
-                            <XCircle className="w-4 h-4" />
-                          </button>
-                        )}
+                    {isAdmin && !isCancelled && !isPaid && (
+                      <button
+                        onClick={() => handleOpenCancel(fat)}
+                        className="p-1 rounded-lg border border-rose-200 text-rose-600 hover:bg-rose-50 transition cursor-pointer shadow-2xs"
+                        title="Cancelar fatura"
+                      >
+                        <XCircle className="w-4 h-4" />
+                      </button>
+                    )}
 
-                        {onDeleteInvoice && (
-                          <button
-                            onClick={() => {
-                              setDeleteInvoiceError(null);
-                              setInvoiceToDelete(fat);
-                            }}
-                            className="p-1 rounded-lg border border-gray-200 text-gray-400 hover:text-rose-600 hover:border-rose-300 hover:bg-rose-50 transition cursor-pointer"
-                            title="Excluir fatura do banco de dados"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
+                    {onDeleteInvoice && (
+                      <button
+                        onClick={() => {
+                          setDeleteInvoiceError(null);
+                          setInvoiceToDelete(fat);
+                        }}
+                        className="p-1 rounded-lg border border-gray-200 text-gray-400 hover:text-rose-600 hover:border-rose-300 hover:bg-rose-50 transition cursor-pointer shadow-2xs"
+                        title="Excluir fatura do banco de dados"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })
+        )}
       </div>
 
       {/* Modal Emitir Nova Fatura */}
@@ -1482,6 +1488,7 @@ export const FaturasView: React.FC<FaturasViewProps> = ({
         <BoletoModal
           fatura={boletoModalFatura}
           isOpen={!!boletoModalFatura}
+          clientes={clientes}
           onClose={() => setBoletoModalFatura(null)}
           onBoletoUpdated={(updatedFields) => {
             // Update local state instance

@@ -36,6 +36,8 @@ import {
 } from './types';
 import {
   notifyInvoiceIssued,
+  notifyBoletoUploaded,
+  notifyMeterReadingReminder,
   enableAndSubscribeToPush,
   registerPushServiceWorker,
   getNotificationPermission,
@@ -65,7 +67,7 @@ import { UsuariosView } from './views/UsuariosView';
 import { AuditoriaView } from './views/AuditoriaView';
 import { ConfiguracoesSistemaView } from './views/ConfiguracoesSistemaView';
 import { PortalClienteView } from './views/PortalClienteView';
-import { SEED_RECORDS } from './data/seedInvoicesData';
+import { SearchableClientSelect } from './components/SearchableClientSelect';
 
 const DEFAULT_EMPRESA: EmpresaConfig = {
   name: 'Neo Energia',
@@ -125,13 +127,7 @@ function MainApp() {
   );
   const [pushSubscribed, setPushSubscribed] = useState(false);
   const [subscribingPush, setSubscribingPush] = useState(false);
-  const [pushBannerDismissed, setPushBannerDismissed] = useState(() => {
-    try {
-      return localStorage.getItem('neo_push_banner_dismissed') === 'true';
-    } catch {
-      return false;
-    }
-  });
+  const [pushBannerDismissed, setPushBannerDismissed] = useState(false);
 
   const handleGlobalSubscribePush = async () => {
     setSubscribingPush(true);
@@ -186,79 +182,7 @@ function MainApp() {
     }
   }, [currentUser, userProfile, isAdmin, clientes]);
 
-  // Synchronization of 38 invoices state
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'success' | 'error'>('idle');
-  const [syncMessage, setSyncMessage] = useState<string>('');
-  const autoSyncAttemptedRef = useRef(false);
   const confirmingPaymentIdsRef = useRef<Set<string>>(new Set());
-
-  const syncAllSeedInvoices = async (force = false) => {
-    if (isSyncing && !force) return;
-    try {
-      setIsSyncing(true);
-      setSyncStatus('syncing');
-      setSyncMessage('Cadastrando 38 clientes, consumos e faturas das imagens no Firestore...');
-
-      const batch = writeBatch(db);
-      for (const rec of SEED_RECORDS) {
-        // 1. Cliente
-        batch.set(doc(db, 'clientes', rec.cliente.id), sanitizeForFirestore(rec.cliente), { merge: true });
-
-        // 2. Leitura
-        batch.set(doc(db, 'leituras', rec.leitura.id), sanitizeForFirestore(rec.leitura), { merge: true });
-
-        // 3. Fatura: preserva status de pagamento existente se a fatura já foi paga
-        const existingFat = faturas.find((f) => f.id === rec.fatura.id);
-        const hasConfirmedPayment = pagamentos.some(
-          (p) => (p.invoiceId === rec.fatura.id || p.invoiceId === rec.fatura.invoiceNumber) && p.status === 'confirmed'
-        );
-
-        if (existingFat) {
-          const isPaid = existingFat.status === 'paid' || hasConfirmedPayment;
-          const fatData: Record<string, any> = {
-            ...rec.fatura,
-            status: isPaid ? 'paid' : existingFat.status,
-            boletoBase64: isPaid ? null : (existingFat.boletoBase64 !== undefined ? existingFat.boletoBase64 : rec.fatura.boletoBase64 || null),
-            boletoFileName: isPaid ? null : (existingFat.boletoFileName !== undefined ? existingFat.boletoFileName : rec.fatura.boletoFileName || null),
-            historicalCompanyData: empresa?.companyName ? empresa : DEFAULT_EMPRESA,
-          };
-          if (existingFat.paidAt || isPaid) {
-            fatData.paidAt = existingFat.paidAt || new Date().toISOString();
-          }
-          if (existingFat.paidBy || isPaid) {
-            fatData.paidBy = existingFat.paidBy || 'Operador';
-          }
-          batch.set(doc(db, 'faturas', rec.fatura.id), sanitizeForFirestore(fatData), { merge: true });
-        } else {
-          const fatData: Record<string, any> = {
-            ...rec.fatura,
-            status: hasConfirmedPayment ? 'paid' : rec.fatura.status,
-            historicalCompanyData: empresa?.companyName ? empresa : DEFAULT_EMPRESA,
-          };
-          if (hasConfirmedPayment) {
-            fatData.paidAt = new Date().toISOString();
-            fatData.paidBy = 'Operador';
-          }
-          batch.set(doc(db, 'faturas', rec.fatura.id), sanitizeForFirestore(fatData), { merge: true });
-        }
-      }
-
-      await batch.commit();
-      setSyncStatus('success');
-      setSyncMessage('✅ Sucesso! Todas as 38 faturas, medidores e clientes foram gravados no banco de dados!');
-      setTimeout(() => {
-        setSyncStatus('idle');
-      }, 7000);
-    } catch (err: unknown) {
-      const errObj = err as { message?: string };
-      console.error('Erro ao cadastrar faturas no Firestore:', err);
-      setSyncStatus('error');
-      setSyncMessage(`Erro ao gravar no banco: ${errObj?.message || 'Verifique permissões'}`);
-    } finally {
-      setIsSyncing(false);
-    }
-  };
 
   // Firestore real-time subscribers
   useEffect(() => {
@@ -271,12 +195,6 @@ function MainApp() {
         const list: Cliente[] = [];
         snap.forEach((d) => list.push({ id: d.id, ...(d.data() as Omit<Cliente, 'id'>) }));
         setClientes(list);
-
-        // Se o banco ainda não possui os 38 clientes cadastrados, inicia a sincronização automática
-        if (list.length < 35 && !autoSyncAttemptedRef.current) {
-          autoSyncAttemptedRef.current = true;
-          syncAllSeedInvoices();
-        }
       },
       (err) => handleFirestoreError(err, OperationType.LIST, 'clientes')
     );
@@ -425,15 +343,6 @@ function MainApp() {
     };
   }, [currentUser]);
 
-  // Garante que o banco seja sincronizado com os 38 clientes caso ainda não esteja completo
-  useEffect(() => {
-    if (!currentUser || autoSyncAttemptedRef.current) return;
-    if (clientes.length > 0 && clientes.length < 35) {
-      autoSyncAttemptedRef.current = true;
-      syncAllSeedInvoices();
-    }
-  }, [currentUser, clientes.length]);
-
   // Integridade de Boletos: Garante que faturas com status 'paid' tenham boletos expurgados do banco
   useEffect(() => {
     if (!currentUser || faturas.length === 0) return;
@@ -496,8 +405,65 @@ function MainApp() {
     }
   }, [currentUser, faturas, pagamentos]);
 
+  // Lembrete Automático de Leitura no Celular do Cliente:
+  // No final do mês (a partir do dia 28 até o último dia do mês), quando o período de leitura
+  // é liberado, envia notificação no celular para lembrar clientes que ainda não enviaram a leitura.
+  const readingReminderCheckedRef = useRef(false);
+  useEffect(() => {
+    if (!currentUser || clientes.length === 0 || readingReminderCheckedRef.current) return;
+
+    const now = new Date();
+    const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' });
+    const [yearStr, monthStr, dayStr] = formatter.format(now).split('-');
+    const currentYear = parseInt(yearStr, 10);
+    const currentMonth = parseInt(monthStr, 10);
+    const currentDay = parseInt(dayStr, 10);
+
+    // Se estiver a partir do dia 28 (período de leitura aberto no final do mês):
+    if (currentDay >= 28) {
+      readingReminderCheckedRef.current = true;
+      const activeClients = clientes.filter((c) => c.status === 'active');
+
+      activeClients.forEach(async (c) => {
+        // Verifica se o cliente já possui fatura emitida para a competência deste mês
+        const hasInvoice = faturas.some(
+          (f) =>
+            f.clientId === c.id &&
+            f.referenceMonth === currentMonth &&
+            f.referenceYear === currentYear &&
+            f.status !== 'cancelled'
+        );
+
+        if (!hasInvoice) {
+          // Garante que só notifica uma vez por ciclo por cliente consultando diretamente o Firestore
+          const notifDocId = `remind_${c.id}_${currentMonth}_${currentYear}`;
+          try {
+            const notifSnap = await getDoc(doc(db, 'notificacoes', notifDocId));
+            if (!notifSnap.exists()) {
+              await notifyMeterReadingReminder(c, currentMonth, currentYear);
+            }
+          } catch {
+            // Em caso de verificação offline/erro de rede temporário, preserva integridade
+          }
+        }
+      });
+    }
+  }, [currentUser, clientes, faturas]);
+
+  // Validador de conexão com a internet para operações de gravação (garante gravação direta no banco)
+  const checkInternetBeforeSave = (): boolean => {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      alert(
+        '⚠️ ATENÇÃO: Sem conexão com a internet!\n\nO sistema grava todas as informações diretamente no banco de dados na nuvem (Firestore). Nada é gravado no seu navegador.\n\nPor favor, conecte-se à internet antes de gravar ou alterar qualquer dado.'
+      );
+      return false;
+    }
+    return true;
+  };
+
   // Handlers for Firestore actions
   const handleSaveCliente = async (clienteData: Partial<Cliente>, isNew: boolean) => {
+    if (!checkInternetBeforeSave()) return;
     // Sanitização completa para o Firestore (remove propriedades 'undefined' que causam erro na SDK)
     const cleanData: Record<string, any> = {};
     for (const [key, val] of Object.entries(clienteData)) {
@@ -555,6 +521,7 @@ function MainApp() {
   };
 
   const handleToggleClienteStatus = async (clienteId: string, currentStatus: 'active' | 'inactive') => {
+    if (!checkInternetBeforeSave()) return;
     const newStatus = currentStatus === 'active' ? 'inactive' : 'active';
     await updateDoc(doc(db, 'clientes', clienteId), {
       status: newStatus,
@@ -563,6 +530,7 @@ function MainApp() {
   };
 
   const handleDeleteCliente = async (clienteId: string) => {
+    if (!checkInternetBeforeSave()) return;
     const cli = clientes.find((c) => c.id === clienteId);
     const hasInvoices = faturas.some((f) => f.clientId === clienteId);
     const hasReadings = leituras.some((l) => l.clientId === clienteId);
@@ -587,6 +555,7 @@ function MainApp() {
   };
 
   const handleRegisterReading = async (readingData: Omit<Leitura, 'id' | 'createdAt'>) => {
+    if (!checkInternetBeforeSave()) return;
     const newRef = doc(collection(db, 'leituras'));
     await setDoc(newRef, {
       ...readingData,
@@ -595,10 +564,12 @@ function MainApp() {
   };
 
   const handleDeleteReading = async (readingId: string) => {
+    if (!checkInternetBeforeSave()) return;
     await deleteDoc(doc(db, 'leituras', readingId));
   };
 
   const handleIssueInvoice = async (invoiceData: Omit<Fatura, 'id' | 'createdAt'>) => {
+    if (!checkInternetBeforeSave()) return;
     const newRef = doc(collection(db, 'faturas'));
     const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
     const initialStatus: InvoiceStatus =
@@ -645,6 +616,7 @@ function MainApp() {
   };
 
   const handleDeleteInvoice = async (faturaId: string) => {
+    if (!checkInternetBeforeSave()) return;
     const fat = faturas.find((f) => f.id === faturaId);
     if (fat?.boletoStoragePath) {
       try {
@@ -703,6 +675,7 @@ function MainApp() {
   };
 
   const handleUpdateInvoice = async (faturaId: string, updatedData: Partial<Fatura>) => {
+    if (!checkInternetBeforeSave()) return;
     const prevFat = faturas.find((f) => f.id === faturaId);
     const finalData: Partial<Fatura> = { ...updatedData };
 
@@ -796,6 +769,7 @@ function MainApp() {
 
   // Confirm payment with mandatory automatic deletion of boleto PDF from Firebase Storage
   const handleConfirmPayment = async (faturaId: string, amount: number) => {
+    if (!checkInternetBeforeSave()) return;
     // 0. Trava de concorrência síncrona: impede que cliques múltiplos gerem pagamentos duplicados
     if (confirmingPaymentIdsRef.current.has(faturaId)) {
       console.warn(`[handleConfirmPayment] Pagamento para a fatura ${faturaId} já está em processamento.`);
@@ -937,6 +911,7 @@ function MainApp() {
 
   // Revert payment: unmark invoice as paid and return status to pending (in both faturas and pagamentos)
   const handleUnmarkPayment = async (faturaId: string, pagamentoId?: string) => {
+    if (!checkInternetBeforeSave()) return;
     // Localiza a fatura por ID do documento ou por invoiceNumber
     const fat = faturas.find((f) => f.id === faturaId || f.invoiceNumber === faturaId);
     const targetDocId = fat?.id || faturaId;
@@ -1196,6 +1171,7 @@ function MainApp() {
   };
 
   const handleCancelInvoice = async (faturaId: string, reason: string) => {
+    if (!checkInternetBeforeSave()) return;
     await updateDoc(doc(db, 'faturas', faturaId), {
       status: 'cancelled',
       cancelledAt: new Date().toISOString(),
@@ -1203,7 +1179,41 @@ function MainApp() {
     });
   };
 
+  // Disparo de lembretes de leitura no celular para clientes sem fatura no ciclo
+  const handleSendReadingReminders = async (): Promise<{ sentCount: number }> => {
+    const now = new Date();
+    const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' });
+    const [yearStr, monthStr, dayStr] = formatter.format(now).split('-');
+    const currentYear = parseInt(yearStr, 10);
+    const currentMonth = parseInt(monthStr, 10);
+    const currentDay = parseInt(dayStr, 10);
+
+    const targetMonth = currentDay >= 28 ? currentMonth : currentMonth === 1 ? 12 : currentMonth - 1;
+    const targetYear = currentDay >= 28 ? currentYear : currentMonth === 1 ? currentYear - 1 : currentYear;
+
+    let count = 0;
+    const activeClients = clientes.filter((c) => c.status === 'active');
+
+    for (const c of activeClients) {
+      const hasInvoice = faturas.some(
+        (f) =>
+          f.clientId === c.id &&
+          f.referenceMonth === targetMonth &&
+          f.referenceYear === targetYear &&
+          f.status !== 'cancelled'
+      );
+
+      if (!hasInvoice) {
+        await notifyMeterReadingReminder(c, targetMonth, targetYear);
+        count++;
+      }
+    }
+
+    return { sentCount: count };
+  };
+
   const handleSaveEmpresa = async (empresaData: EmpresaConfig) => {
+    if (!checkInternetBeforeSave()) return;
     await setDoc(doc(db, 'empresa', 'info'), {
       ...empresaData,
       updatedAt: new Date().toISOString(),
@@ -1211,6 +1221,7 @@ function MainApp() {
   };
 
   const handleSaveTariffs = async (newTariffs: EnergyTariffs) => {
+    if (!checkInternetBeforeSave()) return;
     await setDoc(doc(db, 'configuracoes', 'tarifas'), newTariffs);
     // Add to historic collection
     const histRef = doc(collection(db, 'historico_tarifas'));
@@ -1288,6 +1299,7 @@ function MainApp() {
   };
 
   const handleSaveTaxa = async (taxaData: Omit<TaxaCoelba, 'id' | 'createdAt' | 'status' | 'createdBy'>) => {
+    if (!checkInternetBeforeSave()) return;
     try {
       const id = 'taxa_' + Date.now();
       const now = new Date().toISOString();
@@ -1319,6 +1331,7 @@ function MainApp() {
   };
 
   const handleDeleteTaxa = async (id: string) => {
+    if (!checkInternetBeforeSave()) return;
     try {
       const prev = taxasCoelba.find((t) => t.id === id);
       await deleteDoc(doc(db, 'taxas_coelba', id));
@@ -1489,6 +1502,10 @@ function MainApp() {
               faturas={faturas}
               onNavigate={setActiveTab}
               onOpenInvoiceModal={(fat) => setViewingFatura(fat)}
+              onNavigateToInvoice={(cId) => {
+                setPrefillClientId(cId);
+                setActiveTab('faturas');
+              }}
             />
           )}
 
@@ -1503,12 +1520,10 @@ function MainApp() {
               onToggleStatus={handleToggleClienteStatus}
               onDeleteCliente={handleDeleteCliente}
               onOpenInvoiceModal={(fat) => setViewingFatura(fat)}
-              onSyncAllSeedInvoices={() => syncAllSeedInvoices(true)}
               onOpenPortalForClient={(cId) => {
                 setPortalOverrideClientId(cId);
                 setActiveTab('portal_cliente');
               }}
-              isSyncing={isSyncing}
             />
           )}
 
@@ -1524,6 +1539,7 @@ function MainApp() {
                 setPrefillClientId(cId);
                 setActiveTab('faturas');
               }}
+              onSendReadingReminders={handleSendReadingReminders}
             />
           )}
 
@@ -1542,8 +1558,6 @@ function MainApp() {
               onCancelInvoice={handleCancelInvoice}
               onDeleteInvoice={handleDeleteInvoice}
               onOpenInvoiceModal={(fat) => setViewingFatura(fat)}
-              onSyncAllSeedInvoices={() => syncAllSeedInvoices(true)}
-              isSyncing={isSyncing}
             />
           )}
 
@@ -1635,18 +1649,13 @@ function MainApp() {
                   </p>
                 </div>
 
-                <div className="flex items-center gap-2 w-full sm:w-auto">
-                  <select
-                    value={portalOverrideClientId || (clientes[0]?.id || '')}
-                    onChange={(e) => setPortalOverrideClientId(e.target.value)}
-                    className="w-full sm:w-72 rounded-xl border border-gray-300 p-2 text-xs font-bold text-gray-900 bg-gray-50 focus:bg-white focus:border-emerald-600 focus:outline-none"
-                  >
-                    {clientes.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name} • Medidor: {c.meterNumber || c.consumerUnit || c.clientCodeCoelba}
-                      </option>
-                    ))}
-                  </select>
+                <div className="w-full sm:w-80">
+                  <SearchableClientSelect
+                    clientes={clientes}
+                    selectedClientId={portalOverrideClientId || (clientes[0]?.id || '')}
+                    onSelectClient={(cId) => setPortalOverrideClientId(cId)}
+                    placeholder="🔍 Digite para buscar cliente..."
+                  />
                 </div>
               </div>
 
@@ -1688,6 +1697,7 @@ function MainApp() {
         <BoletoModal
           fatura={selectedBoletoFatura}
           isOpen={!!selectedBoletoFatura}
+          clientes={clientes}
           onClose={() => setSelectedBoletoFatura(null)}
           onBoletoUpdated={(updatedFields) => {
             setSelectedBoletoFatura((prev) => (prev ? { ...prev, ...updatedFields } : null));

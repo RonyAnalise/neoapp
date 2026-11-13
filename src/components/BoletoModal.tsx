@@ -1,18 +1,20 @@
 import React, { useState } from 'react';
-import { X, Upload, FileText, Trash2, Download, AlertCircle, CheckCircle, ExternalLink } from 'lucide-react';
+import { X, Upload, FileText, Trash2, Download, AlertCircle, CheckCircle, ExternalLink, MessageCircle } from 'lucide-react';
 import { doc, updateDoc } from 'firebase/firestore';
 import { ref, deleteObject } from 'firebase/storage';
 import { db, storage } from '../lib/firebase';
-import { Fatura } from '../types';
+import { Fatura, Cliente } from '../types';
 import { downloadBoletoFile, openBoletoInNewTab } from '../lib/boletoService';
 import { logAuditEvent } from '../lib/auditService';
 import { useAuth } from '../hooks/useAuth';
+import { notifyBoletoUploaded, getWhatsAppBoletoNotificationUrl } from '../lib/notificationService';
 
 interface BoletoModalProps {
   fatura: Fatura | null;
   isOpen: boolean;
   onClose: () => void;
   onBoletoUpdated: (updatedFatura: Partial<Fatura>) => void;
+  clientes?: Cliente[];
 }
 
 // Limite seguro: 720 KB de PDF resulta em ~960 KB de Base64, respeitando o limite rígido de 1 MB do Firestore (Caminho 2)
@@ -23,6 +25,7 @@ export const BoletoModal: React.FC<BoletoModalProps> = ({
   isOpen,
   onClose,
   onBoletoUpdated,
+  clientes = [],
 }) => {
   const { userProfile } = useAuth();
   const [file, setFile] = useState<File | null>(null);
@@ -86,6 +89,14 @@ export const BoletoModal: React.FC<BoletoModalProps> = ({
           await updateDoc(faturaRef, updates);
           onBoletoUpdated(updates);
 
+          // Dispara notificação no celular do cliente (Web Push e Firestore)
+          const clientObj = clientes?.find((c) => c.id === fatura.clientId);
+          try {
+            await notifyBoletoUploaded({ ...fatura, ...updates }, clientObj);
+          } catch (notifErr) {
+            console.warn('Erro ao disparar notificação de boleto no celular:', notifErr);
+          }
+
           await logAuditEvent({
             operationType: 'issue_invoice',
             collectionName: 'faturas',
@@ -100,7 +111,7 @@ export const BoletoModal: React.FC<BoletoModalProps> = ({
             },
           });
 
-          setSuccess('Boleto bancário gravado com sucesso no banco de dados!');
+          setSuccess('Boleto bancário gravado com sucesso! Notificação enviada para o celular do cliente.');
           setFile(null);
         } catch (err: unknown) {
           console.error('Erro ao salvar boleto no Firestore:', err);
@@ -217,9 +228,28 @@ export const BoletoModal: React.FC<BoletoModalProps> = ({
         )}
 
         {success && (
-          <div className="mt-4 flex items-center gap-2 rounded-xl bg-emerald-50 p-3 text-xs text-emerald-800 border border-emerald-200">
-            <CheckCircle className="w-4 h-4 shrink-0" />
-            <span>{success}</span>
+          <div className="mt-4 flex flex-col gap-2 rounded-xl bg-emerald-50 p-3 text-xs text-emerald-800 border border-emerald-200">
+            <div className="flex items-center gap-2">
+              <CheckCircle className="w-4 h-4 shrink-0 text-emerald-600" />
+              <span>{success}</span>
+            </div>
+            {(() => {
+              const clientObj = clientes.find((c) => c.id === fatura.clientId);
+              if (!clientObj) return null;
+              const waUrl = getWhatsAppBoletoNotificationUrl(clientObj, fatura);
+              if (!waUrl) return null;
+              return (
+                <a
+                  href={waUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#25D366] hover:bg-[#20ba59] text-white font-bold text-xs transition shadow-xs self-start mt-1"
+                >
+                  <MessageCircle className="w-3.5 h-3.5" />
+                  <span>Enviar aviso também no WhatsApp do Cliente</span>
+                </a>
+              );
+            })()}
           </div>
         )}
 
