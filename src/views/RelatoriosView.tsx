@@ -125,35 +125,49 @@ export const RelatoriosView: React.FC<RelatoriosViewProps> = ({
   };
 
   // 1. REGRA: Faturas canceladas NUNCA entram no relatório
-  const relevantInvoices = faturas.filter((f) => {
-    if (f.status === 'cancelled') return false;
+  const relevantInvoices = faturas
+    .filter((f) => {
+      if (f.status === 'cancelled') return false;
 
-    const matchYear = f.referenceYear === filterYear;
-    const matchMonth = filterMonth === 'all' || f.referenceMonth === filterMonth;
-    if (!matchYear || !matchMonth) return false;
+      const matchYear = f.referenceYear === filterYear;
+      const matchMonth = filterMonth === 'all' || f.referenceMonth === filterMonth;
+      if (!matchYear || !matchMonth) return false;
 
-    if (filterCity !== 'all') {
-      const city = getClientCity(f);
-      if (city.toLowerCase() !== filterCity.toLowerCase()) return false;
-    }
+      if (filterCity !== 'all') {
+        const city = getClientCity(f);
+        if (city.toLowerCase() !== filterCity.toLowerCase()) return false;
+      }
 
-    if (reportType === 'faturas_pendentes') {
-      if (f.status !== 'pending' && f.status !== 'overdue') return false;
-    }
-    if (reportType === 'faturas_pagas') {
-      if (f.status !== 'paid') return false;
-    }
+      if (reportType === 'faturas_pendentes') {
+        if (f.status !== 'pending' && f.status !== 'overdue') return false;
+      }
+      if (reportType === 'faturas_pagas') {
+        if (f.status !== 'paid') return false;
+      }
 
-    return matchesInvoiceSearch(f);
-  });
+      return matchesInvoiceSearch(f);
+    })
+    .sort((a, b) => {
+      // 1. Ordem decrescente de competência (ano e mês mais recentes primeiro)
+      if (b.referenceYear !== a.referenceYear) return b.referenceYear - a.referenceYear;
+      if (b.referenceMonth !== a.referenceMonth) return b.referenceMonth - a.referenceMonth;
+      // 2. Ordem alfabética por nome do cliente (A-Z)
+      const nameA = (a.clientName || clientes.find((c) => c.id === a.clientId)?.name || '').trim();
+      const nameB = (b.clientName || clientes.find((c) => c.id === b.clientId)?.name || '').trim();
+      const nameCompare = nameA.localeCompare(nameB, 'pt-BR', { sensitivity: 'base' });
+      if (nameCompare !== 0) return nameCompare;
+      return (a.invoiceNumber || '').localeCompare(b.invoiceNumber || '', 'pt-BR', { numeric: true });
+    });
 
-  const relevantClients = clientes.filter((c) => {
-    if (filterCity !== 'all') {
-      const city = c.city || '';
-      if (city.toLowerCase() !== filterCity.toLowerCase()) return false;
-    }
-    return matchesClientSearch(c);
-  });
+  const relevantClients = clientes
+    .filter((c) => {
+      if (filterCity !== 'all') {
+        const city = c.city || '';
+        if (city.toLowerCase() !== filterCity.toLowerCase()) return false;
+      }
+      return matchesClientSearch(c);
+    })
+    .sort((a, b) => (a.name || '').trim().localeCompare((b.name || '').trim(), 'pt-BR', { sensitivity: 'base' }));
 
   // Totais consolidados da listagem
   const totalCount = relevantInvoices.length;
