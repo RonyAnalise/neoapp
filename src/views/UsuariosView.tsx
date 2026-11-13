@@ -18,6 +18,7 @@ import { UserProfile, UserRole } from '../types';
 import { formatDateBr } from '../lib/calculations';
 import { logAuditEvent } from '../lib/auditService';
 import { useAuth } from '../hooks/useAuth';
+import { Pagination } from '../components/Pagination';
 
 interface UsuariosViewProps {
   usuarios: UserProfile[];
@@ -35,6 +36,8 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
   const { userProfile, isAdmin, adminCreateUser } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
   const [savingUid, setSavingUid] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
 
   // New user modal state
   const [createModalOpen, setCreateModalOpen] = useState(false);
@@ -62,6 +65,12 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
     const term = searchTerm.toLowerCase();
     return u.name.toLowerCase().includes(term) || u.email.toLowerCase().includes(term);
   });
+
+  const safeUsersPage = Math.min(page, Math.max(1, Math.ceil(filtered.length / itemsPerPage)));
+  const paginatedUsers = filtered.slice(
+    (safeUsersPage - 1) * itemsPerPage,
+    safeUsersPage * itemsPerPage
+  );
 
   const handleRoleChange = async (uid: string, roleToSet: UserRole, active: boolean) => {
     if (!isAdmin) {
@@ -227,7 +236,10 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
           <input
             type="text"
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={(e) => {
+              setSearchTerm(e.target.value);
+              setPage(1);
+            }}
             placeholder="Buscar por nome ou e-mail..."
             className="w-full sm:w-80 rounded-xl border border-gray-300 p-2 text-xs text-gray-900 focus:border-emerald-600 focus:outline-none"
           />
@@ -246,14 +258,14 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {filtered.length === 0 ? (
+              {paginatedUsers.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="py-8 text-center text-gray-400">
                     Nenhum usuário localizado.
                   </td>
                 </tr>
               ) : (
-                filtered.map((u) => {
+                paginatedUsers.map((u) => {
                   const isCurrentSelf = u.uid === userProfile?.uid;
                   return (
                     <tr key={u.uid} className="hover:bg-gray-50/60">
@@ -342,6 +354,14 @@ export const UsuariosView: React.FC<UsuariosViewProps> = ({
               )}
             </tbody>
           </table>
+          <Pagination
+            currentPage={safeUsersPage}
+            totalItems={filtered.length}
+            itemsPerPage={itemsPerPage}
+            onPageChange={setPage}
+            onItemsPerPageChange={setItemsPerPage}
+            itemLabel="usuários"
+          />
         </div>
       </div>
 

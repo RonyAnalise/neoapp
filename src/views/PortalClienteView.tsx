@@ -554,14 +554,14 @@ export const PortalClienteView: React.FC<PortalClienteViewProps> = ({
         </div>
       )}
 
-      {/* Navegação Principal em Abas */}
-      <nav className="bg-white border-b border-gray-200 sticky top-0 z-20 shadow-xs">
+      {/* Navegação Principal em Abas (Desktop / Tablet Grande) - Sem barra de rolagem horizontal */}
+      <nav className="hidden md:block bg-white border-b border-gray-200 sticky top-0 z-20 shadow-xs">
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
-          <div className="flex gap-2 sm:gap-4 overflow-x-auto py-2">
+          <div className="flex flex-wrap items-center gap-2 py-2.5">
             <button
               type="button"
               onClick={() => setActiveTab('faturas')}
-              className={`flex items-center gap-2 py-2 px-3 sm:px-4 rounded-xl text-xs sm:text-sm font-black transition cursor-pointer shrink-0 ${
+              className={`flex items-center gap-2 py-2 px-3.5 rounded-xl text-xs lg:text-sm font-black transition cursor-pointer ${
                 activeTab === 'faturas'
                   ? 'bg-emerald-700 text-white shadow-xs'
                   : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
@@ -579,13 +579,13 @@ export const PortalClienteView: React.FC<PortalClienteViewProps> = ({
             <button
               type="button"
               onClick={() => setActiveTab('leitura_ia')}
-              className={`flex items-center gap-2 py-2 px-3 sm:px-4 rounded-xl text-xs sm:text-sm font-black transition cursor-pointer shrink-0 ${
+              className={`flex items-center gap-2 py-2 px-3.5 rounded-xl text-xs lg:text-sm font-black transition cursor-pointer ${
                 activeTab === 'leitura_ia'
                   ? 'bg-emerald-700 text-white shadow-xs'
                   : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
               }`}
             >
-              <Camera className="w-4 h-4 text-emerald-600" />
+              <Camera className={`w-4 h-4 ${activeTab === 'leitura_ia' ? 'text-white' : 'text-emerald-600'}`} />
               <span>Leitura com Foto & IA</span>
               <span className="bg-yellow-400 text-emerald-950 text-[10px] font-black px-1.5 py-0.2 rounded-full">
                 Dia 28
@@ -595,33 +595,33 @@ export const PortalClienteView: React.FC<PortalClienteViewProps> = ({
             <button
               type="button"
               onClick={() => setActiveTab('taxas_coelba')}
-              className={`flex items-center gap-2 py-2 px-3 sm:px-4 rounded-xl text-xs sm:text-sm font-black transition cursor-pointer shrink-0 ${
+              className={`flex items-center gap-2 py-2 px-3.5 rounded-xl text-xs lg:text-sm font-black transition cursor-pointer ${
                 activeTab === 'taxas_coelba'
                   ? 'bg-emerald-700 text-white shadow-xs'
                   : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
               }`}
             >
-              <FileCheck2 className="w-4 h-4 text-emerald-600" />
+              <FileCheck2 className={`w-4 h-4 ${activeTab === 'taxas_coelba' ? 'text-white' : 'text-emerald-600'}`} />
               <span>Taxas Coelba Pagas</span>
             </button>
 
             <button
               type="button"
               onClick={() => setActiveTab('economia')}
-              className={`flex items-center gap-2 py-2 px-3 sm:px-4 rounded-xl text-xs sm:text-sm font-black transition cursor-pointer shrink-0 ${
+              className={`flex items-center gap-2 py-2 px-3.5 rounded-xl text-xs lg:text-sm font-black transition cursor-pointer ${
                 activeTab === 'economia'
                   ? 'bg-emerald-700 text-white shadow-xs'
                   : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
               }`}
             >
-              <DollarSign className="w-4 h-4 text-yellow-500" />
+              <DollarSign className={`w-4 h-4 ${activeTab === 'economia' ? 'text-yellow-300' : 'text-yellow-500'}`} />
               <span>Minha Economia (R$)</span>
             </button>
 
             <button
               type="button"
               onClick={() => setActiveTab('cadastro')}
-              className={`flex items-center gap-2 py-2 px-3 sm:px-4 rounded-xl text-xs sm:text-sm font-black transition cursor-pointer shrink-0 ${
+              className={`flex items-center gap-2 py-2 px-3.5 rounded-xl text-xs lg:text-sm font-black transition cursor-pointer ${
                 activeTab === 'cadastro'
                   ? 'bg-emerald-700 text-white shadow-xs'
                   : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
@@ -1159,7 +1159,68 @@ export const PortalClienteView: React.FC<PortalClienteViewProps> = ({
                 </span>
               </div>
 
-              <div className="overflow-x-auto">
+              {/* Versão Mobile sem barra horizontal (Cards em 2 linhas) */}
+              <div className="md:hidden divide-y divide-gray-100">
+                {clientFaturas.map((fat) => {
+                  const client = clientes.find((c) => c.id === fat.clientId);
+                  const isPaid = fat.status === 'paid';
+                  return (
+                    <div key={fat.id} className="p-3.5 space-y-2 text-xs">
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <span className="font-black text-gray-900 block">
+                            {formatReferencePeriod(fat.referenceMonth, fat.referenceYear)}
+                          </span>
+                          <span className="text-[11px] text-gray-500">
+                            {client?.meterNumber || client?.consumerUnit || 'Medidor Padrão'} • {formatNumberBr(fat.consumptionKwh)} kWh
+                          </span>
+                        </div>
+                        <div className="text-right">
+                          <span className="font-black text-emerald-800 text-sm block">
+                            + {formatCurrency(fat.savingsAmount)}
+                          </span>
+                          <span className="text-[10px] text-gray-500">Economia</span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-gray-100">
+                        <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                          <span className="text-rose-700 font-semibold">
+                            Coelba: {formatCurrency(fat.coelbaEstimateAmount)}
+                          </span>
+                          <span className="text-gray-900 font-bold">
+                            Neo: {formatCurrency(fat.totalToPay)}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {isPaid ? (
+                            <span className="inline-flex items-center gap-1 bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                              <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                              Paga
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 bg-amber-100 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                              <Clock className="w-3 h-3 text-amber-600" />
+                              Aberta
+                            </span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => onOpenInvoiceModal(fat)}
+                            className="text-emerald-700 font-bold inline-flex items-center gap-1 bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-200 cursor-pointer"
+                          >
+                            <FileText className="w-3 h-3" />
+                            <span>Ver</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Versão Desktop */}
+              <div className="hidden md:block">
                 <table className="w-full text-xs text-left">
                   <thead className="bg-gray-50 border-b border-gray-200 text-gray-600 uppercase font-black text-[10px]">
                     <tr>
@@ -1447,7 +1508,7 @@ export const PortalClienteView: React.FC<PortalClienteViewProps> = ({
       </main>
 
       {/* Rodapé Institucional do Portal */}
-      <footer className="bg-white border-t border-gray-200 py-4 text-center text-xs text-gray-500">
+      <footer className="bg-white border-t border-gray-200 pt-4 pb-24 md:pb-4 text-center text-xs text-gray-500">
         <div className="max-w-7xl mx-auto px-4">
           <p className="font-bold text-gray-700">
             {empresa.companyName || 'NEO ENERGIA CARNAÚBANOS (GRUPO DE INVESTIMENTOS CARNAÚBANOS)'}
@@ -1457,6 +1518,116 @@ export const PortalClienteView: React.FC<PortalClienteViewProps> = ({
           </p>
         </div>
       </footer>
+
+      {/* Menu Responsivo Fixo Abaixo (Mobile / Tablet) - Sem barra de rolagem */}
+      <nav
+        aria-label="Menu do Portal do Cliente"
+        className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-gray-200 shadow-[0_-4px_20px_rgba(0,0,0,0.08)]"
+      >
+        <div className="grid grid-cols-5 gap-1 px-1.5 py-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab('faturas');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+            className={`relative flex flex-col items-center justify-center gap-0.5 py-1.5 px-1 rounded-xl transition cursor-pointer ${
+              activeTab === 'faturas'
+                ? 'bg-emerald-700 text-white shadow-xs'
+                : 'text-gray-600 hover:bg-gray-100'
+            }`}
+          >
+            <div className="relative">
+              <Receipt className="w-5 h-5" />
+              {pendingFaturas.length > 0 && (
+                <span className="absolute -top-1.5 -right-2.5 bg-rose-500 text-white text-[9px] font-black min-w-[16px] h-4 px-1 rounded-full flex items-center justify-center border border-white">
+                  {pendingFaturas.length}
+                </span>
+              )}
+            </div>
+            <span className="text-[10px] font-extrabold leading-tight truncate w-full text-center">
+              Faturas
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab('leitura_ia');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+            className={`relative flex flex-col items-center justify-center gap-0.5 py-1.5 px-1 rounded-xl transition cursor-pointer ${
+              activeTab === 'leitura_ia'
+                ? 'bg-emerald-700 text-white shadow-xs'
+                : 'text-gray-600 hover:bg-gray-100'
+            }`}
+          >
+            <div className="relative">
+              <Camera className={`w-5 h-5 ${activeTab === 'leitura_ia' ? 'text-white' : 'text-emerald-600'}`} />
+              <span className="absolute -top-1.5 -right-3 bg-yellow-400 text-emerald-950 text-[8px] font-black px-1 rounded-full leading-tight border border-white">
+                28
+              </span>
+            </div>
+            <span className="text-[10px] font-extrabold leading-tight truncate w-full text-center">
+              Leitura IA
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab('taxas_coelba');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+            className={`flex flex-col items-center justify-center gap-0.5 py-1.5 px-1 rounded-xl transition cursor-pointer ${
+              activeTab === 'taxas_coelba'
+                ? 'bg-emerald-700 text-white shadow-xs'
+                : 'text-gray-600 hover:bg-gray-100'
+            }`}
+          >
+            <FileCheck2 className={`w-5 h-5 ${activeTab === 'taxas_coelba' ? 'text-white' : 'text-emerald-600'}`} />
+            <span className="text-[10px] font-extrabold leading-tight truncate w-full text-center">
+              Taxas
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab('economia');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+            className={`flex flex-col items-center justify-center gap-0.5 py-1.5 px-1 rounded-xl transition cursor-pointer ${
+              activeTab === 'economia'
+                ? 'bg-emerald-700 text-white shadow-xs'
+                : 'text-gray-600 hover:bg-gray-100'
+            }`}
+          >
+            <DollarSign className={`w-5 h-5 ${activeTab === 'economia' ? 'text-yellow-300' : 'text-yellow-500'}`} />
+            <span className="text-[10px] font-extrabold leading-tight truncate w-full text-center">
+              Economia
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab('cadastro');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+            className={`flex flex-col items-center justify-center gap-0.5 py-1.5 px-1 rounded-xl transition cursor-pointer ${
+              activeTab === 'cadastro'
+                ? 'bg-emerald-700 text-white shadow-xs'
+                : 'text-gray-600 hover:bg-gray-100'
+            }`}
+          >
+            <User className="w-5 h-5" />
+            <span className="text-[10px] font-extrabold leading-tight truncate w-full text-center">
+              Meus Dados
+            </span>
+          </button>
+        </div>
+      </nav>
 
       {/* Modal Guia iPhone para Notificações com App Fechado */}
       {showIOSPwaGuide && (

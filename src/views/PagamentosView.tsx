@@ -3,6 +3,7 @@ import { CreditCard, CheckCircle2, Search, DollarSign, Calendar, Eye, Download, 
 import { Fatura, Pagamento, Cliente } from '../types';
 import { formatCurrency, formatDateBr, formatReferencePeriod } from '../lib/calculations';
 import { ConfirmationModal } from '../components/ConfirmationModal';
+import { Pagination } from '../components/Pagination';
 
 interface PagamentosViewProps {
   pagamentos: Pagamento[];
@@ -25,6 +26,8 @@ export const PagamentosView: React.FC<PagamentosViewProps> = ({
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [tab, setTab] = useState<'realizados' | 'pendentes'>('realizados');
+  const [page, setPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
   const [selectedFaturaToPay, setSelectedFaturaToPay] = useState<Fatura | null>(null);
   const [confirmModalOpen, setConfirmModalOpen] = useState(false);
   const [paying, setPaying] = useState(false);
@@ -144,32 +147,83 @@ export const PagamentosView: React.FC<PagamentosViewProps> = ({
     return Array.from(uniqueMap.values());
   }, [pagamentos, paidFaturas, faturas]);
 
-  // Filter confirmed payments
-  const filteredPagamentos = allConfirmedPaymentsList.filter((p) => {
-    const fat = faturas.find((f) => f.id === p.invoiceId || f.invoiceNumber === p.invoiceId);
-    const client = clientes.find((c) => c.id === p.clientId || c.id === fat?.clientId);
-    const term = searchTerm.toLowerCase();
+  // Filter and sort confirmed payments (descending month/year, then alphabetical client name)
+  const filteredPagamentos = allConfirmedPaymentsList
+    .filter((p) => {
+      const fat = faturas.find((f) => f.id === p.invoiceId || f.invoiceNumber === p.invoiceId);
+      const client = clientes.find((c) => c.id === p.clientId || c.id === fat?.clientId);
+      const term = searchTerm.toLowerCase();
 
-    return (
-      (fat?.invoiceNumber || '').toLowerCase().includes(term) ||
-      (client?.name || '').toLowerCase().includes(term)
-    );
-  });
+      return (
+        (fat?.invoiceNumber || '').toLowerCase().includes(term) ||
+        (client?.name || fat?.clientName || '').toLowerCase().includes(term)
+      );
+    })
+    .sort((a, b) => {
+      const fatA = faturas.find((f) => f.id === a.invoiceId || f.invoiceNumber === a.invoiceId);
+      const fatB = faturas.find((f) => f.id === b.invoiceId || f.invoiceNumber === b.invoiceId);
 
-  // Filter pending faturas that require payment (excludes already paid or confirmed)
-  const pendingFaturas = faturas.filter(
-    (f) =>
-      f.status !== 'paid' &&
-      f.status !== 'cancelled' &&
-      !allConfirmedPaymentsList.some(
-        (p) => (p.invoiceId === f.id || p.invoiceId === f.invoiceNumber) && p.status === 'confirmed'
-      ) &&
-      ((f.invoiceNumber || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (f.clientName || '').toLowerCase().includes(searchTerm.toLowerCase()))
-  );
+      const dateA = a.paymentDate ? new Date(a.paymentDate) : null;
+      const dateB = b.paymentDate ? new Date(b.paymentDate) : null;
+
+      const yearA = fatA?.referenceYear || (dateA && !isNaN(dateA.getTime()) ? dateA.getFullYear() : 0);
+      const yearB = fatB?.referenceYear || (dateB && !isNaN(dateB.getTime()) ? dateB.getFullYear() : 0);
+      if (yearB !== yearA) return yearB - yearA;
+
+      const monthA = fatA?.referenceMonth || (dateA && !isNaN(dateA.getTime()) ? dateA.getMonth() + 1 : 0);
+      const monthB = fatB?.referenceMonth || (dateB && !isNaN(dateB.getTime()) ? dateB.getMonth() + 1 : 0);
+      if (monthB !== monthA) return monthB - monthA;
+
+      const clientA = clientes.find((c) => c.id === a.clientId || c.id === fatA?.clientId);
+      const clientB = clientes.find((c) => c.id === b.clientId || c.id === fatB?.clientId);
+      const nameA = (clientA?.name || fatA?.clientName || '').trim();
+      const nameB = (clientB?.name || fatB?.clientName || '').trim();
+      const nameCompare = nameA.localeCompare(nameB, 'pt-BR', { sensitivity: 'base' });
+      if (nameCompare !== 0) return nameCompare;
+
+      return (fatA?.invoiceNumber || a.invoiceId || '').localeCompare(
+        fatB?.invoiceNumber || b.invoiceId || '',
+        'pt-BR',
+        { numeric: true }
+      );
+    });
+
+  // Filter and sort pending faturas (descending month/year, then alphabetical client name)
+  const pendingFaturas = faturas
+    .filter(
+      (f) =>
+        f.status !== 'paid' &&
+        f.status !== 'cancelled' &&
+        !allConfirmedPaymentsList.some(
+          (p) => (p.invoiceId === f.id || p.invoiceId === f.invoiceNumber) && p.status === 'confirmed'
+        ) &&
+        ((f.invoiceNumber || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+          (f.clientName || '').toLowerCase().includes(searchTerm.toLowerCase()))
+    )
+    .sort((a, b) => {
+      if (b.referenceYear !== a.referenceYear) return b.referenceYear - a.referenceYear;
+      if (b.referenceMonth !== a.referenceMonth) return b.referenceMonth - a.referenceMonth;
+      const nameA = (a.clientName || clientes.find((c) => c.id === a.clientId)?.name || '').trim();
+      const nameB = (b.clientName || clientes.find((c) => c.id === b.clientId)?.name || '').trim();
+      const nameCompare = nameA.localeCompare(nameB, 'pt-BR', { sensitivity: 'base' });
+      if (nameCompare !== 0) return nameCompare;
+      return (a.invoiceNumber || '').localeCompare(b.invoiceNumber || '', 'pt-BR', { numeric: true });
+    });
 
   const totalPaidSum = allConfirmedPaymentsList.reduce((acc, p) => acc + (p.amountPaid || 0), 0);
   const totalPendingSum = pendingFaturas.reduce((acc, f) => acc + (f.totalToPay || 0), 0);
+
+  const safePagamentosPage = Math.min(page, Math.max(1, Math.ceil(filteredPagamentos.length / itemsPerPage)));
+  const paginatedPagamentos = filteredPagamentos.slice(
+    (safePagamentosPage - 1) * itemsPerPage,
+    safePagamentosPage * itemsPerPage
+  );
+
+  const safePendingPage = Math.min(page, Math.max(1, Math.ceil(pendingFaturas.length / itemsPerPage)));
+  const paginatedPendingFaturas = pendingFaturas.slice(
+    (safePendingPage - 1) * itemsPerPage,
+    safePendingPage * itemsPerPage
+  );
 
   return (
     <div className="space-y-6">
@@ -214,7 +268,10 @@ export const PagamentosView: React.FC<PagamentosViewProps> = ({
       <div className="bg-white rounded-2xl p-4 sm:p-5 border border-gray-200/80 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-4">
         <div className="flex items-center gap-2 bg-gray-100 p-1 rounded-xl w-full sm:w-auto">
           <button
-            onClick={() => setTab('realizados')}
+            onClick={() => {
+              setTab('realizados');
+              setPage(1);
+            }}
             className={`px-4 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer flex-1 sm:flex-initial ${
               tab === 'realizados'
                 ? 'bg-white text-emerald-900 shadow-xs'
@@ -224,7 +281,10 @@ export const PagamentosView: React.FC<PagamentosViewProps> = ({
             Pagamentos Confirmados ({allConfirmedPaymentsList.length})
           </button>
           <button
-            onClick={() => setTab('pendentes')}
+            onClick={() => {
+              setTab('pendentes');
+              setPage(1);
+            }}
             className={`px-4 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer flex-1 sm:flex-initial ${
               tab === 'pendentes'
                 ? 'bg-white text-emerald-900 shadow-xs'
@@ -254,7 +314,10 @@ export const PagamentosView: React.FC<PagamentosViewProps> = ({
             <input
               type="text"
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              onChange={(e) => {
+                setSearchTerm(e.target.value);
+                setPage(1);
+              }}
               placeholder="Buscar fatura ou cliente..."
               className="w-full rounded-xl border border-gray-300 pl-9 pr-3 py-2 text-xs text-gray-900 focus:border-emerald-600 focus:outline-none"
             />
@@ -294,20 +357,25 @@ export const PagamentosView: React.FC<PagamentosViewProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {filteredPagamentos.length === 0 ? (
+                {paginatedPagamentos.length === 0 ? (
                   <tr>
                     <td colSpan={8} className="py-12 text-center text-gray-400">
                       Nenhum pagamento registrado ainda.
                     </td>
                   </tr>
                 ) : (
-                  filteredPagamentos.map((pag) => {
+                  paginatedPagamentos.map((pag) => {
                     const fat = faturas.find((f) => f.id === pag.invoiceId || f.invoiceNumber === pag.invoiceId);
                     const client = clientes.find((c) => c.id === pag.clientId || c.id === fat?.clientId);
                     return (
                       <tr key={pag.id} className="hover:bg-gray-50/60 transition">
                         <td className="py-3 px-4 font-mono font-bold text-gray-900">
-                          #{fat?.invoiceNumber || pag.invoiceId.slice(0, 8)}
+                          <div>#{fat?.invoiceNumber || pag.invoiceId.slice(0, 8)}</div>
+                          {fat && fat.referenceMonth > 0 && fat.referenceYear > 0 && (
+                            <div className="text-[10px] font-sans font-semibold text-emerald-700 mt-0.5">
+                              {formatReferencePeriod(fat.referenceMonth, fat.referenceYear)}
+                            </div>
+                          )}
                         </td>
                         <td className="py-3 px-4 font-bold text-gray-900">
                           {client?.name || fat?.clientName || 'Cliente'}
@@ -392,6 +460,14 @@ export const PagamentosView: React.FC<PagamentosViewProps> = ({
                 )}
               </tbody>
             </table>
+            <Pagination
+              currentPage={safePagamentosPage}
+              totalItems={filteredPagamentos.length}
+              itemsPerPage={itemsPerPage}
+              onPageChange={setPage}
+              onItemsPerPageChange={setItemsPerPage}
+              itemLabel="pagamentos"
+            />
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -408,14 +484,14 @@ export const PagamentosView: React.FC<PagamentosViewProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {pendingFaturas.length === 0 ? (
+                {paginatedPendingFaturas.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="py-12 text-center text-gray-400">
                       Nenhuma fatura pendente de pagamento! Todas as contas estão em dia.
                     </td>
                   </tr>
                 ) : (
-                  pendingFaturas.map((fat) => (
+                  paginatedPendingFaturas.map((fat) => (
                     <tr key={fat.id} className="hover:bg-gray-50/60 transition">
                       <td className="py-3 px-4 font-mono font-bold text-gray-900">
                         #{fat.invoiceNumber}
@@ -452,6 +528,14 @@ export const PagamentosView: React.FC<PagamentosViewProps> = ({
                 )}
               </tbody>
             </table>
+            <Pagination
+              currentPage={safePendingPage}
+              totalItems={pendingFaturas.length}
+              itemsPerPage={itemsPerPage}
+              onPageChange={setPage}
+              onItemsPerPageChange={setItemsPerPage}
+              itemLabel="faturas pendentes"
+            />
           </div>
         )}
       </div>

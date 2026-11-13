@@ -161,6 +161,12 @@ export const RelatoriosView: React.FC<RelatoriosViewProps> = ({
   const totalNeo = relevantInvoices.reduce((s, f) => s + (f.totalToPay || 0), 0);
   const totalCoelba = relevantInvoices.reduce((s, f) => s + (f.coelbaEstimateAmount || 0), 0);
   const totalEconomia = relevantInvoices.reduce((s, f) => s + (f.savingsAmount || 0), 0);
+  const totalTaxasFixas = relevantInvoices.reduce((s, f) => {
+    const cli = clientes.find((c) => c.id === f.clientId);
+    const fee = f.fixedFee !== undefined ? (f.fixedFee || 0) : (cli?.fixedFee || 0);
+    return s + fee;
+  }, 0);
+  const totalLiquido = totalNeo - totalTaxasFixas;
 
   const getReportTitle = (type: typeof reportType): string => {
     switch (type) {
@@ -216,24 +222,33 @@ export const RelatoriosView: React.FC<RelatoriosViewProps> = ({
         'Cidade',
         'Competencia',
         'Consumo_kWh',
-        'Valor_Neo_R$',
+        'Faturamento_Total_R$',
+        'Taxa_Fixa_Adm_R$',
+        'Valor_Liquido_R$',
         'Economia_R$',
         'Vencimento',
         'Status',
       ];
-      rows = relevantInvoices.map((f) => [
-        f.invoiceNumber,
-        `"${f.clientName || ''}"`,
-        `"${getClientCpfCnpj(f)}"`,
-        `"${getClientCodeCoelba(f)}"`,
-        `"${getClientCity(f)}"`,
-        `${f.referenceMonth}/${f.referenceYear}`,
-        f.consumptionKwh,
-        f.totalToPay,
-        f.savingsAmount,
-        f.dueDate,
-        f.status === 'paid' ? 'Paga' : f.status === 'overdue' ? 'Vencida' : 'Pendente',
-      ]);
+      rows = relevantInvoices.map((f) => {
+        const cli = clientes.find((c) => c.id === f.clientId);
+        const fee = f.fixedFee !== undefined ? (f.fixedFee || 0) : (cli?.fixedFee || 0);
+        const liq = (f.totalToPay || 0) - fee;
+        return [
+          f.invoiceNumber,
+          `"${f.clientName || ''}"`,
+          `"${getClientCpfCnpj(f)}"`,
+          `"${getClientCodeCoelba(f)}"`,
+          `"${getClientCity(f)}"`,
+          `${f.referenceMonth}/${f.referenceYear}`,
+          f.consumptionKwh,
+          f.totalToPay,
+          fee,
+          liq,
+          f.savingsAmount,
+          f.dueDate,
+          f.status === 'paid' ? 'Paga' : f.status === 'overdue' ? 'Vencida' : 'Pendente',
+        ];
+      });
       // Linha de total no final do CSV
       rows.push([
         'TOTAL GERAL',
@@ -244,6 +259,8 @@ export const RelatoriosView: React.FC<RelatoriosViewProps> = ({
         '',
         totalConsumo,
         totalNeo,
+        totalTaxasFixas,
+        totalLiquido,
         totalEconomia,
         '',
         '',
@@ -473,7 +490,7 @@ export const RelatoriosView: React.FC<RelatoriosViewProps> = ({
 
       {/* Summary KPI Pills (hidden on print or compact) */}
       {reportType !== 'clientes_status' && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 print:grid-cols-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 print:grid-cols-6">
           <div className="bg-white rounded-2xl p-4 border border-gray-200 print:p-2 print:border-gray-300">
             <span className="text-[10px] font-bold text-gray-500 uppercase block">Faturas</span>
             <h4 className="text-lg sm:text-xl font-black text-gray-900 mt-0.5">{totalCount}</h4>
@@ -485,9 +502,21 @@ export const RelatoriosView: React.FC<RelatoriosViewProps> = ({
             </h4>
           </div>
           <div className="bg-white rounded-2xl p-4 border border-gray-200 print:p-2 print:border-gray-300">
-            <span className="text-[10px] font-bold text-gray-500 uppercase block">Total Neo Energia</span>
+            <span className="text-[10px] font-bold text-gray-500 uppercase block">Faturamento Total</span>
             <h4 className="text-lg sm:text-xl font-black text-emerald-700 mt-0.5">
               {formatCurrency(totalNeo)}
+            </h4>
+          </div>
+          <div className="bg-white rounded-2xl p-4 border border-purple-200 bg-purple-50/20 print:p-2 print:border-gray-300">
+            <span className="text-[10px] font-bold text-purple-700 uppercase block">Total Taxas Fixas</span>
+            <h4 className="text-lg sm:text-xl font-black text-purple-900 mt-0.5">
+              {formatCurrency(totalTaxasFixas)}
+            </h4>
+          </div>
+          <div className="bg-white rounded-2xl p-4 border border-emerald-300 bg-emerald-50/30 print:p-2 print:border-gray-300">
+            <span className="text-[10px] font-black text-emerald-900 uppercase block">Valor Líquido</span>
+            <h4 className="text-lg sm:text-xl font-black text-emerald-800 mt-0.5">
+              {formatCurrency(totalLiquido)}
             </h4>
           </div>
           <div className="bg-white rounded-2xl p-4 border border-gray-200 print:p-2 print:border-gray-300">
@@ -578,72 +607,86 @@ export const RelatoriosView: React.FC<RelatoriosViewProps> = ({
             <table className="w-full text-left text-xs print:text-[8.5px] table-fixed">
               <thead className="bg-gray-50 border-b border-gray-200 text-gray-600 font-bold uppercase text-[10px] print:text-[8px] tracking-wider print:bg-gray-100">
                 <tr>
-                  <th className="py-2.5 px-2.5 print:py-1.5 print:px-1.5 w-[20%]">Cliente</th>
-                  <th className="py-2.5 px-2 print:py-1.5 print:px-1 w-[11%]">Cód. Coelba</th>
-                  <th className="py-2.5 px-2 print:py-1.5 print:px-1 w-[10%]">Cidade</th>
-                  <th className="py-2.5 px-2 print:py-1.5 print:px-1 text-center w-[9%]">Competência</th>
-                  <th className="py-2.5 px-2 print:py-1.5 print:px-1 text-right w-[11%]">Consumo</th>
-                  <th className="py-2.5 px-2 print:py-1.5 print:px-1 text-right w-[12%]">Neo Energia</th>
-                  <th className="py-2.5 px-2 print:py-1.5 print:px-1 text-right w-[11%]">Economia</th>
-                  <th className="py-2.5 px-2 print:py-1.5 print:px-1 text-center w-[9%]">Vencimento</th>
-                  <th className="py-2.5 px-2 print:py-1.5 print:px-1 text-center w-[7%]">Status</th>
+                  <th className="py-2.5 px-2 print:py-1.5 print:px-1 w-[18%]">Cliente</th>
+                  <th className="py-2.5 px-1.5 print:py-1.5 print:px-1 w-[10%]">Cód. Coelba</th>
+                  <th className="py-2.5 px-1.5 print:py-1.5 print:px-1 w-[9%]">Cidade</th>
+                  <th className="py-2.5 px-1.5 print:py-1.5 print:px-1 text-center w-[8%]">Competência</th>
+                  <th className="py-2.5 px-1.5 print:py-1.5 print:px-1 text-right w-[8%]">Consumo</th>
+                  <th className="py-2.5 px-1.5 print:py-1.5 print:px-1 text-right w-[11%]">Faturamento</th>
+                  <th className="py-2.5 px-1.5 print:py-1.5 print:px-1 text-right w-[10%]">Taxa Fixa Adm</th>
+                  <th className="py-2.5 px-1.5 print:py-1.5 print:px-1 text-right w-[10%]">Valor Líquido</th>
+                  <th className="py-2.5 px-1.5 print:py-1.5 print:px-1 text-right w-[8%]">Economia</th>
+                  <th className="py-2.5 px-1.5 print:py-1.5 print:px-1 text-center w-[8%]">Vencimento</th>
+                  <th className="py-2.5 px-1.5 print:py-1.5 print:px-1 text-center w-[6%]">Status</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {relevantInvoices.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="py-12 text-center text-gray-400">
+                    <td colSpan={11} className="py-12 text-center text-gray-400">
                       {searchTerm
                         ? `Nenhum registro encontrado para a busca "${searchTerm}" com os filtros atuais.`
                         : 'Nenhum registro encontrado para este relatório (faturas canceladas são excluídas).'}
                     </td>
                   </tr>
                 ) : (
-                  relevantInvoices.map((f) => (
-                    <tr key={f.id} className="hover:bg-gray-50/60 print:hover:bg-transparent">
-                      <td className="py-2 px-2.5 print:py-1 print:px-1.5 font-bold text-gray-900 break-words leading-tight">
-                        {f.clientName}
-                      </td>
-                      <td className="py-2 px-2 print:py-1 print:px-1 font-mono font-semibold text-emerald-800 text-[11px] print:text-[8px] truncate">
-                        {getClientCodeCoelba(f)}
-                      </td>
-                      <td className="py-2 px-2 print:py-1 print:px-1 text-gray-700 truncate">
-                        {getClientCity(f)}
-                      </td>
-                      <td className="py-2 px-2 print:py-1 print:px-1 text-center font-medium whitespace-nowrap">
-                        {formatReferencePeriod(f.referenceMonth, f.referenceYear)}
-                      </td>
-                      <td className="py-2 px-2 print:py-1 print:px-1 text-right whitespace-nowrap font-mono">
-                        {formatNumberBr(f.consumptionKwh)} kWh
-                      </td>
-                      <td className="py-2 px-2 print:py-1 print:px-1 text-right font-bold text-emerald-800 whitespace-nowrap font-mono">
-                        {formatCurrency(f.totalToPay)}
-                      </td>
-                      <td className="py-2 px-2 print:py-1 print:px-1 text-right font-bold text-orange-600 whitespace-nowrap font-mono">
-                        {formatCurrency(f.savingsAmount)}
-                      </td>
-                      <td className="py-2 px-2 print:py-1 print:px-1 text-center text-gray-600 whitespace-nowrap font-mono">
-                        {formatDateBr(f.dueDate)}
-                      </td>
-                      <td className="py-2 px-2 print:py-1 print:px-1 text-center whitespace-nowrap">
-                        <span
-                          className={`inline-block px-1.5 py-0.5 rounded text-[10px] print:text-[8px] font-bold ${
-                            f.status === 'paid'
-                              ? 'bg-emerald-100 text-emerald-800'
+                  relevantInvoices.map((f) => {
+                    const cli = clientes.find((c) => c.id === f.clientId);
+                    const fee = f.fixedFee !== undefined ? (f.fixedFee || 0) : (cli?.fixedFee || 0);
+                    const liq = (f.totalToPay || 0) - fee;
+
+                    return (
+                      <tr key={f.id} className="hover:bg-gray-50/60 print:hover:bg-transparent">
+                        <td className="py-2 px-2 print:py-1 print:px-1 font-bold text-gray-900 break-words leading-tight">
+                          {f.clientName}
+                        </td>
+                        <td className="py-2 px-1.5 print:py-1 print:px-1 font-mono font-semibold text-emerald-800 text-[11px] print:text-[8px] truncate">
+                          {getClientCodeCoelba(f)}
+                        </td>
+                        <td className="py-2 px-1.5 print:py-1 print:px-1 text-gray-700 truncate">
+                          {getClientCity(f)}
+                        </td>
+                        <td className="py-2 px-1.5 print:py-1 print:px-1 text-center font-medium whitespace-nowrap">
+                          {formatReferencePeriod(f.referenceMonth, f.referenceYear)}
+                        </td>
+                        <td className="py-2 px-1.5 print:py-1 print:px-1 text-right whitespace-nowrap font-mono">
+                          {formatNumberBr(f.consumptionKwh)} kWh
+                        </td>
+                        <td className="py-2 px-1.5 print:py-1 print:px-1 text-right font-bold text-emerald-800 whitespace-nowrap font-mono">
+                          {formatCurrency(f.totalToPay)}
+                        </td>
+                        <td className="py-2 px-1.5 print:py-1 print:px-1 text-right font-semibold text-purple-700 whitespace-nowrap font-mono">
+                          {fee > 0 ? formatCurrency(fee) : '-'}
+                        </td>
+                        <td className="py-2 px-1.5 print:py-1 print:px-1 text-right font-bold text-emerald-950 whitespace-nowrap font-mono">
+                          {formatCurrency(liq)}
+                        </td>
+                        <td className="py-2 px-1.5 print:py-1 print:px-1 text-right font-bold text-orange-600 whitespace-nowrap font-mono">
+                          {formatCurrency(f.savingsAmount)}
+                        </td>
+                        <td className="py-2 px-1.5 print:py-1 print:px-1 text-center text-gray-600 whitespace-nowrap font-mono">
+                          {formatDateBr(f.dueDate)}
+                        </td>
+                        <td className="py-2 px-1.5 print:py-1 print:px-1 text-center whitespace-nowrap">
+                          <span
+                            className={`inline-block px-1.5 py-0.5 rounded text-[10px] print:text-[8px] font-bold ${
+                              f.status === 'paid'
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : f.status === 'overdue'
+                                ? 'bg-rose-100 text-rose-800'
+                                : 'bg-amber-100 text-amber-800'
+                            }`}
+                          >
+                            {f.status === 'paid'
+                              ? 'Paga'
                               : f.status === 'overdue'
-                              ? 'bg-rose-100 text-rose-800'
-                              : 'bg-amber-100 text-amber-800'
-                          }`}
-                        >
-                          {f.status === 'paid'
-                            ? 'Paga'
-                            : f.status === 'overdue'
-                            ? 'Vencida'
-                            : 'Pendente'}
-                        </span>
-                      </td>
-                    </tr>
-                  ))
+                              ? 'Vencida'
+                              : 'Pendente'}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
 
@@ -651,19 +694,25 @@ export const RelatoriosView: React.FC<RelatoriosViewProps> = ({
               {relevantInvoices.length > 0 && (
                 <tfoot className="bg-gray-100 font-bold border-t-2 border-gray-300 text-gray-900 print:bg-gray-50 text-xs print:text-[8.5px]">
                   <tr>
-                    <td className="py-2.5 px-2.5 print:py-1.5 print:px-1.5 font-black uppercase text-gray-900" colSpan={4}>
+                    <td className="py-2.5 px-2 print:py-1.5 print:px-1 font-black uppercase text-gray-900" colSpan={4}>
                       TOTAL GERAL ({totalCount} {totalCount === 1 ? 'fatura' : 'faturas'})
                     </td>
-                    <td className="py-2.5 px-2 print:py-1.5 print:px-1 text-right font-black text-gray-900 whitespace-nowrap">
+                    <td className="py-2.5 px-1.5 print:py-1.5 print:px-1 text-right font-black text-gray-900 whitespace-nowrap">
                       {formatNumberBr(totalConsumo)} kWh
                     </td>
-                    <td className="py-2.5 px-2 print:py-1.5 print:px-1 text-right font-black text-emerald-800 whitespace-nowrap">
+                    <td className="py-2.5 px-1.5 print:py-1.5 print:px-1 text-right font-black text-emerald-800 whitespace-nowrap">
                       {formatCurrency(totalNeo)}
                     </td>
-                    <td className="py-2.5 px-2 print:py-1.5 print:px-1 text-right font-black text-orange-600 whitespace-nowrap">
+                    <td className="py-2.5 px-1.5 print:py-1.5 print:px-1 text-right font-black text-purple-800 whitespace-nowrap">
+                      {formatCurrency(totalTaxasFixas)}
+                    </td>
+                    <td className="py-2.5 px-1.5 print:py-1.5 print:px-1 text-right font-black text-emerald-950 whitespace-nowrap">
+                      {formatCurrency(totalLiquido)}
+                    </td>
+                    <td className="py-2.5 px-1.5 print:py-1.5 print:px-1 text-right font-black text-orange-600 whitespace-nowrap">
                       {formatCurrency(totalEconomia)}
                     </td>
-                    <td className="py-2.5 px-2 print:py-1.5 print:px-1 text-center text-gray-400" colSpan={2}>
+                    <td className="py-2.5 px-1.5 print:py-1.5 print:px-1 text-center text-gray-400" colSpan={2}>
                       -
                     </td>
                   </tr>

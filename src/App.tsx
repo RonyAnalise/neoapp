@@ -482,14 +482,23 @@ function MainApp() {
       ? Number(cleanData.customCoelbaTariff)
       : null;
 
+    // Tratamento de Taxa Fixa: se em branco ou zero, não salva no doc (ou remove se edição)
+    const fixedFeeNum = cleanData.fixedFee !== undefined && cleanData.fixedFee !== null && cleanData.fixedFee !== ''
+      ? Number(cleanData.fixedFee)
+      : null;
+
     if (isNew) {
       delete cleanData.customNeoTariff;
       delete cleanData.customCoelbaTariff;
+      delete cleanData.fixedFee;
       if (neoNum !== null && !isNaN(neoNum) && neoNum > 0) {
         cleanData.customNeoTariff = neoNum;
       }
       if (coelbaNum !== null && !isNaN(coelbaNum) && coelbaNum > 0) {
         cleanData.customCoelbaTariff = coelbaNum;
+      }
+      if (fixedFeeNum !== null && !isNaN(fixedFeeNum) && fixedFeeNum > 0) {
+        cleanData.fixedFee = fixedFeeNum;
       }
 
       const newRef = doc(collection(db, 'clientes'));
@@ -511,6 +520,12 @@ function MainApp() {
         cleanData.customCoelbaTariff = coelbaNum;
       } else {
         cleanData.customCoelbaTariff = deleteField();
+      }
+
+      if (fixedFeeNum !== null && !isNaN(fixedFeeNum) && fixedFeeNum > 0) {
+        cleanData.fixedFee = fixedFeeNum;
+      } else {
+        cleanData.fixedFee = deleteField();
       }
 
       await updateDoc(doc(db, 'clientes', docId), {
@@ -579,9 +594,16 @@ function MainApp() {
         ? 'overdue'
         : (invoiceData.status || 'pending');
 
+    const matchedClient = clientes.find((c) => c.id === invoiceData.clientId);
+    const resolvedFixedFee =
+      invoiceData.fixedFee !== undefined && invoiceData.fixedFee !== null
+        ? Number(invoiceData.fixedFee)
+        : (matchedClient?.fixedFee ? Number(matchedClient.fixedFee) : 0);
+
     const createdFatura: Fatura = {
       id: newRef.id,
       ...invoiceData,
+      ...(resolvedFixedFee > 0 ? { fixedFee: resolvedFixedFee } : {}),
       status: initialStatus,
       createdAt: new Date().toISOString(),
     };

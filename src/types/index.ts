@@ -33,6 +33,7 @@ export interface Cliente {
   meterNumber?: string;
   customNeoTariff?: number;
   customCoelbaTariff?: number;
+  fixedFee?: number; // Taxa fixa mensal paga pelo administrador para o cliente
   status: ClientStatus;
   portalAccessActive?: boolean;
   portalPassword?: string;
@@ -128,6 +129,7 @@ export interface Fatura {
   issueDate: string;
   dueDate: string;
   status: InvoiceStatus;
+  fixedFee?: number; // Taxa fixa mensal do cliente atribuída na emissão da fatura (controle do administrador)
   notes?: string;
   // Historical snapshot of company and client to reproduce invoice identically
   historicalCompanyData?: EmpresaConfig;

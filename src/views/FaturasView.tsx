@@ -38,6 +38,7 @@ import { logAuditEvent } from '../lib/auditService';
 import { useAuth } from '../hooks/useAuth';
 import { downloadBoletoFile } from '../lib/boletoService';
 import { getWhatsAppNotificationUrl } from '../lib/notificationService';
+import { Pagination } from '../components/Pagination';
 
 interface FaturasViewProps {
   faturas: Fatura[];
@@ -74,11 +75,13 @@ export const FaturasView: React.FC<FaturasViewProps> = ({
   const currentYear = new Date().getFullYear();
   const currentMonth = new Date().getMonth() + 1;
 
-  // Filter state
+  // Filter & pagination state
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | InvoiceStatus>('all');
   const [selectedMonth, setSelectedMonth] = useState<number | 'all'>('all');
   const [selectedYear, setSelectedYear] = useState<number | 'all'>('all');
+  const [page, setPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
 
   const availableYears = useMemo(() => {
     const years = new Set<number>([currentYear - 1, currentYear, currentYear + 1]);
@@ -630,13 +633,23 @@ export const FaturasView: React.FC<FaturasViewProps> = ({
       return matchesSearch && matchesStatus && matchesMonth && matchesYear;
     })
     .sort((a, b) => {
-      // Ordenação por vencimento decrescente (mais recente/futuro para o mais antigo)
-      const timeA = a.dueDate ? new Date(a.dueDate).getTime() : 0;
-      const timeB = b.dueDate ? new Date(b.dueDate).getTime() : 0;
-      if (timeB !== timeA) return timeB - timeA;
-      if (a.referenceYear !== b.referenceYear) return b.referenceYear - a.referenceYear;
-      return b.referenceMonth - a.referenceMonth;
+      // 1. Ordem decrescente de competência (ano e mês mais recentes primeiro)
+      if (b.referenceYear !== a.referenceYear) return b.referenceYear - a.referenceYear;
+      if (b.referenceMonth !== a.referenceMonth) return b.referenceMonth - a.referenceMonth;
+      // 2. Ordem alfabética por nome do cliente (A-Z)
+      const nameA = (a.clientName || clientes.find((c) => c.id === a.clientId)?.name || '').trim();
+      const nameB = (b.clientName || clientes.find((c) => c.id === b.clientId)?.name || '').trim();
+      const nameCompare = nameA.localeCompare(nameB, 'pt-BR', { sensitivity: 'base' });
+      if (nameCompare !== 0) return nameCompare;
+      return (a.invoiceNumber || '').localeCompare(b.invoiceNumber || '', 'pt-BR', { numeric: true });
     });
+
+  const totalFaturasPages = Math.max(1, Math.ceil(filteredFaturas.length / itemsPerPage));
+  const safeFaturasPage = Math.min(page, totalFaturasPages);
+  const paginatedFaturas = filteredFaturas.slice(
+    (safeFaturasPage - 1) * itemsPerPage,
+    safeFaturasPage * itemsPerPage
+  );
 
   return (
     <div className="space-y-6">
@@ -644,7 +657,10 @@ export const FaturasView: React.FC<FaturasViewProps> = ({
       <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"
-          onClick={() => setStatusFilter('all')}
+          onClick={() => {
+            setStatusFilter('all');
+            setPage(1);
+          }}
           className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
             statusFilter === 'all'
               ? 'bg-emerald-800 text-white shadow-xs'
@@ -663,7 +679,10 @@ export const FaturasView: React.FC<FaturasViewProps> = ({
 
         <button
           type="button"
-          onClick={() => setStatusFilter('paid')}
+          onClick={() => {
+            setStatusFilter('paid');
+            setPage(1);
+          }}
           className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
             statusFilter === 'paid'
               ? 'bg-emerald-600 text-white shadow-xs'
@@ -683,7 +702,10 @@ export const FaturasView: React.FC<FaturasViewProps> = ({
 
         <button
           type="button"
-          onClick={() => setStatusFilter('pending')}
+          onClick={() => {
+            setStatusFilter('pending');
+            setPage(1);
+          }}
           className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
             statusFilter === 'pending'
               ? 'bg-amber-600 text-white shadow-xs'
@@ -703,7 +725,10 @@ export const FaturasView: React.FC<FaturasViewProps> = ({
 
         <button
           type="button"
-          onClick={() => setStatusFilter('overdue')}
+          onClick={() => {
+            setStatusFilter('overdue');
+            setPage(1);
+          }}
           className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
             statusFilter === 'overdue'
               ? 'bg-rose-600 text-white shadow-xs'
@@ -783,7 +808,10 @@ export const FaturasView: React.FC<FaturasViewProps> = ({
             <input
               type="text"
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              onChange={(e) => {
+                setSearchTerm(e.target.value);
+                setPage(1);
+              }}
               placeholder="Buscar por fatura ou cliente..."
               className="w-full rounded-xl border border-gray-300 pl-9 pr-3 py-2 text-xs text-gray-900 focus:border-emerald-600 focus:outline-none"
             />
@@ -792,7 +820,10 @@ export const FaturasView: React.FC<FaturasViewProps> = ({
           <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
             <select
               value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as 'all' | InvoiceStatus)}
+              onChange={(e) => {
+                setStatusFilter(e.target.value as 'all' | InvoiceStatus);
+                setPage(1);
+              }}
               className="rounded-xl border border-gray-300 bg-gray-50 px-3 py-2 text-xs font-semibold text-gray-900 focus:border-emerald-600 focus:outline-none"
             >
               <option value="all">Todos os Status</option>
@@ -804,9 +835,10 @@ export const FaturasView: React.FC<FaturasViewProps> = ({
 
             <select
               value={selectedMonth}
-              onChange={(e) =>
-                setSelectedMonth(e.target.value === 'all' ? 'all' : Number(e.target.value))
-              }
+              onChange={(e) => {
+                setSelectedMonth(e.target.value === 'all' ? 'all' : Number(e.target.value));
+                setPage(1);
+              }}
               className="rounded-xl border border-gray-300 bg-gray-50 px-3 py-2 text-xs font-semibold text-gray-900 focus:border-emerald-600 focus:outline-none"
             >
               <option value="all">Todos os Meses</option>
@@ -819,9 +851,10 @@ export const FaturasView: React.FC<FaturasViewProps> = ({
 
             <select
               value={selectedYear}
-              onChange={(e) =>
-                setSelectedYear(e.target.value === 'all' ? 'all' : Number(e.target.value))
-              }
+              onChange={(e) => {
+                setSelectedYear(e.target.value === 'all' ? 'all' : Number(e.target.value));
+                setPage(1);
+              }}
               className="rounded-xl border border-gray-300 bg-gray-50 px-3 py-2 text-xs font-semibold text-gray-900 focus:border-emerald-600 focus:outline-none"
             >
               <option value="all">Todos os Anos</option>
@@ -846,13 +879,14 @@ export const FaturasView: React.FC<FaturasViewProps> = ({
       </div>
 
       {/* Lista de Faturas em 2 Linhas (Sem barra horizontal) */}
-      <div className="bg-white rounded-2xl border border-gray-200/80 shadow-xs overflow-hidden divide-y divide-gray-100">
-        {filteredFaturas.length === 0 ? (
-          <div className="py-12 text-center text-gray-400 text-xs">
-            Nenhuma fatura encontrada para os filtros selecionados.
-          </div>
-        ) : (
-          filteredFaturas.map((fat) => {
+      <div className="bg-white rounded-2xl border border-gray-200/80 shadow-xs overflow-hidden">
+        <div className="divide-y divide-gray-100">
+          {paginatedFaturas.length === 0 ? (
+            <div className="py-12 text-center text-gray-400 text-xs">
+              Nenhuma fatura encontrada para os filtros selecionados.
+            </div>
+          ) : (
+            paginatedFaturas.map((fat) => {
             const cli = clientes.find((c) => c.id === fat.clientId);
             const meterDisplay = fat.meterNumber || cli?.meterNumber;
             const ucDisplay = fat.consumerUnit || cli?.consumerUnit || cli?.clientCodeCoelba;
@@ -1071,6 +1105,15 @@ export const FaturasView: React.FC<FaturasViewProps> = ({
             );
           })
         )}
+        </div>
+        <Pagination
+          currentPage={safeFaturasPage}
+          totalItems={filteredFaturas.length}
+          itemsPerPage={itemsPerPage}
+          onPageChange={setPage}
+          onItemsPerPageChange={setItemsPerPage}
+          itemLabel="faturas"
+        />
       </div>
 
       {/* Modal Emitir Nova Fatura */}

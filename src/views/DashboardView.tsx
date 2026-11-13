@@ -18,6 +18,8 @@ import {
   Phone,
   MessageCircle,
   Eye,
+  Wallet,
+  Receipt,
 } from 'lucide-react';
 import { Cliente, Fatura } from '../types';
 import { formatCurrency, formatNumberBr, getMonthName } from '../lib/calculations';
@@ -192,6 +194,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const totalConsumptionMonth = monthInvoices.reduce((acc, f) => acc + (f.consumptionKwh || 0), 0);
   const totalSavingsMonth = monthInvoices.reduce((acc, f) => acc + (f.savingsAmount || 0), 0);
 
+  // Total de Taxas Fixas Pagas pelo Administrador (somatório das taxas cadastradas nas faturas do mês)
+  const totalFixedFeesMonth = monthInvoices.reduce((acc, f) => {
+    const cli = clientes.find((c) => c.id === f.clientId);
+    const fee = f.fixedFee !== undefined ? (f.fixedFee || 0) : (cli?.fixedFee || 0);
+    return acc + fee;
+  }, 0);
+
+  // Valor Líquido = Faturamento Total - Total de Taxas
+  const netRevenueMonth = totalInvoicedMonth - totalFixedFeesMonth;
+
   // Métricas acumuladas gerais
   const totalAccumulatedSavings = nonCancelledInvoices.reduce((acc, f) => acc + (f.savingsAmount || 0), 0);
   const totalAccumulatedConsumption = nonCancelledInvoices.reduce((acc, f) => acc + (f.consumptionKwh || 0), 0);
@@ -205,6 +217,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     const kwh = invs.reduce((sum, f) => sum + (f.consumptionKwh || 0), 0);
     const savings = invs.reduce((sum, f) => sum + (f.savingsAmount || 0), 0);
     const billed = invs.reduce((sum, f) => sum + (f.totalToPay || 0), 0);
+    const fixedFees = invs.reduce((sum, f) => {
+      const cli = clientes.find((c) => c.id === f.clientId);
+      const fee = f.fixedFee !== undefined ? (f.fixedFee || 0) : (cli?.fixedFee || 0);
+      return sum + fee;
+    }, 0);
+    const net = billed - fixedFees;
     const paid = invs.filter((f) => f.status === 'paid').reduce((sum, f) => sum + (f.totalToPay || 0), 0);
     return {
       month: getMonthName(mNum).slice(0, 3),
@@ -213,6 +231,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       kwh,
       savings,
       billed,
+      fixedFees,
+      net,
       paid,
       invoicesCount: invs.length,
     };
@@ -459,71 +479,107 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       </div>
 
-      {/* Grid de KPIs Principais */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* Grid de KPIs Principais (incluindo Faturamento, Taxas Fixas Adm e Valor Líquido) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 sm:gap-4">
         {/* Total Clientes */}
-        <div className="bg-white rounded-2xl p-5 border border-gray-200/80 shadow-xs flex items-center justify-between">
+        <div className="bg-white rounded-2xl p-4 sm:p-5 border border-gray-200/80 shadow-xs flex items-center justify-between">
           <div>
-            <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Clientes Ativos</p>
-            <h3 className="text-2xl font-black text-gray-900 mt-1">{activeClientsCount}</h3>
-            <span className="text-[11px] text-gray-500 font-medium">
+            <p className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Clientes Ativos</p>
+            <h3 className="text-xl sm:text-2xl font-black text-gray-900 mt-1">{activeClientsCount}</h3>
+            <span className="text-[10px] sm:text-[11px] text-gray-500 font-medium block">
               {clientes.length} cadastrados no total
             </span>
           </div>
-          <div className="w-12 h-12 rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center">
-            <Users className="w-6 h-6" />
+          <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+            <Users className="w-5 h-5 sm:w-6 sm:h-6" />
           </div>
         </div>
 
         {/* Consumo do Mês */}
-        <div className="bg-white rounded-2xl p-5 border border-gray-200/80 shadow-xs flex items-center justify-between">
+        <div className="bg-white rounded-2xl p-4 sm:p-5 border border-gray-200/80 shadow-xs flex items-center justify-between">
           <div>
-            <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+            <p className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">
               {isAllMonths ? 'Consumo Anual' : `Consumo (${getMonthName(selectedMonth).slice(0, 3)})`}
             </p>
-            <h3 className="text-2xl font-black text-emerald-700 mt-1">
+            <h3 className="text-xl sm:text-2xl font-black text-emerald-700 mt-1">
               {formatNumberBr(totalConsumptionMonth)} <span className="text-xs font-bold">kWh</span>
             </h3>
-            <span className="text-[11px] text-gray-500 font-medium">
+            <span className="text-[10px] sm:text-[11px] text-gray-500 font-medium block truncate">
               Acumulado: {formatNumberBr(totalAccumulatedConsumption)} kWh
             </span>
           </div>
-          <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center">
-            <Zap className="w-6 h-6" />
+          <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
+            <Zap className="w-5 h-5 sm:w-6 sm:h-6" />
           </div>
         </div>
 
-        {/* Faturado no Mês */}
-        <div className="bg-white rounded-2xl p-5 border border-gray-200/80 shadow-xs flex items-center justify-between">
+        {/* Faturamento Total */}
+        <div className="bg-white rounded-2xl p-4 sm:p-5 border border-gray-200/80 shadow-xs flex items-center justify-between">
           <div>
-            <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">
-              {isAllMonths ? 'Faturado no Ano' : 'Total Faturado'}
+            <p className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">
+              {isAllMonths ? 'Faturado no Ano' : 'Faturamento Total'}
             </p>
-            <h3 className="text-2xl font-black text-gray-900 mt-1">
+            <h3 className="text-xl sm:text-2xl font-black text-gray-900 mt-1">
               {formatCurrency(totalInvoicedMonth)}
             </h3>
-            <span className="text-[11px] text-emerald-600 font-bold block mt-0.5">
+            <span className="text-[10px] sm:text-[11px] text-emerald-600 font-bold block mt-0.5">
               Recebido: {formatCurrency(totalReceivedMonth)}
             </span>
           </div>
-          <div className="w-12 h-12 rounded-2xl bg-blue-100 text-blue-700 flex items-center justify-center">
-            <DollarSign className="w-6 h-6" />
+          <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
+            <DollarSign className="w-5 h-5 sm:w-6 sm:h-6" />
+          </div>
+        </div>
+
+        {/* Total de Taxas Fixas Pagas pelo Adm */}
+        <div className="bg-white rounded-2xl p-4 sm:p-5 border border-violet-200 bg-violet-50/20 shadow-xs flex items-center justify-between">
+          <div>
+            <p className="text-[11px] font-bold text-violet-800 uppercase tracking-wider">
+              {isAllMonths ? 'Taxas Fixas (Ano)' : 'Total Taxas Fixas (Adm)'}
+            </p>
+            <h3 className="text-xl sm:text-2xl font-black text-violet-900 mt-1">
+              {formatCurrency(totalFixedFeesMonth)}
+            </h3>
+            <span className="text-[10px] sm:text-[11px] text-violet-700 font-medium block mt-0.5">
+              Somatório pago pelo adm
+            </span>
+          </div>
+          <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-violet-100 text-violet-800 flex items-center justify-center shrink-0">
+            <Receipt className="w-5 h-5 sm:w-6 sm:h-6" />
+          </div>
+        </div>
+
+        {/* Card Valor Líquido: Faturamento Total - Total de Taxas */}
+        <div className="bg-gradient-to-br from-emerald-50 via-white to-emerald-100/40 rounded-2xl p-4 sm:p-5 border-2 border-emerald-400 shadow-xs flex items-center justify-between">
+          <div>
+            <p className="text-[11px] font-black text-emerald-950 uppercase tracking-wider">
+              {isAllMonths ? 'Valor Líquido (Ano)' : 'Valor Líquido'}
+            </p>
+            <h3 className="text-xl sm:text-2xl font-black text-emerald-700 mt-1">
+              {formatCurrency(netRevenueMonth)}
+            </h3>
+            <span className="text-[10px] sm:text-[11px] text-emerald-800 font-bold block mt-0.5">
+              Faturamento - Taxas
+            </span>
+          </div>
+          <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-emerald-700 text-white flex items-center justify-center shadow-xs shrink-0">
+            <Wallet className="w-5 h-5 sm:w-6 sm:h-6" />
           </div>
         </div>
 
         {/* Economia do Mês */}
-        <div className="bg-white rounded-2xl p-5 border border-gray-200/80 shadow-xs flex items-center justify-between">
+        <div className="bg-white rounded-2xl p-4 sm:p-5 border border-gray-200/80 shadow-xs flex items-center justify-between">
           <div>
-            <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Economia Gerada</p>
-            <h3 className="text-2xl font-black text-[#e97825] mt-1">
+            <p className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Economia Gerada</p>
+            <h3 className="text-xl sm:text-2xl font-black text-[#e97825] mt-1">
               {formatCurrency(totalSavingsMonth)}
             </h3>
-            <span className="text-[11px] text-orange-600 font-bold block mt-0.5">
-              Total Acumulado: {formatCurrency(totalAccumulatedSavings)}
+            <span className="text-[10px] sm:text-[11px] text-orange-600 font-bold block mt-0.5 truncate">
+              Acumulado: {formatCurrency(totalAccumulatedSavings)}
             </span>
           </div>
-          <div className="w-12 h-12 rounded-2xl bg-orange-100 text-orange-700 flex items-center justify-center">
-            <TrendingUp className="w-6 h-6" />
+          <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-orange-100 text-orange-700 flex items-center justify-center shrink-0">
+            <TrendingUp className="w-5 h-5 sm:w-6 sm:h-6" />
           </div>
         </div>
       </div>

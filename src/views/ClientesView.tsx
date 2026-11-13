@@ -28,6 +28,7 @@ import { fetchAddressByCep, formatCep } from '../lib/cepService';
 import { formatCurrency, formatNumberBr, formatDateBr, formatReferencePeriod } from '../lib/calculations';
 import { logAuditEvent } from '../lib/auditService';
 import { useAuth } from '../hooks/useAuth';
+import { Pagination } from '../components/Pagination';
 
 interface ClientesViewProps {
   clientes: Cliente[];
@@ -87,6 +88,7 @@ export const ClientesView: React.FC<ClientesViewProps> = ({
     consumerUnit: '',
     customNeoTariff: undefined,
     customCoelbaTariff: undefined,
+    fixedFee: undefined,
     status: 'active',
     notes: '',
   });
@@ -97,7 +99,7 @@ export const ClientesView: React.FC<ClientesViewProps> = ({
 
   // Pagination
   const [page, setPage] = useState(1);
-  const itemsPerPage = 8;
+  const [itemsPerPage, setItemsPerPage] = useState(10);
 
   // Extract unique cities for filtering
   const uniqueCities = Array.from(new Set(clientes.map((c) => c.city).filter(Boolean)));
@@ -145,8 +147,9 @@ export const ClientesView: React.FC<ClientesViewProps> = ({
     })
     .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'pt-BR', { sensitivity: 'base' }));
 
-  const totalPages = Math.ceil(filteredClientes.length / itemsPerPage) || 1;
-  const paginatedClientes = filteredClientes.slice((page - 1) * itemsPerPage, page * itemsPerPage);
+  const totalPages = Math.max(1, Math.ceil(filteredClientes.length / itemsPerPage));
+  const safePage = Math.min(page, totalPages);
+  const paginatedClientes = filteredClientes.slice((safePage - 1) * itemsPerPage, safePage * itemsPerPage);
 
   const handleOpenNew = () => {
     setEditingCliente(null);
@@ -167,6 +170,7 @@ export const ClientesView: React.FC<ClientesViewProps> = ({
       consumerUnit: '',
       customNeoTariff: undefined,
       customCoelbaTariff: undefined,
+      fixedFee: undefined,
       status: 'active',
       notes: '',
     });
@@ -216,7 +220,7 @@ export const ClientesView: React.FC<ClientesViewProps> = ({
     try {
       const isNew = !editingCliente;
 
-      // Sanitiza payload: campos de tarifas em branco usam padrão geral sem erro de undefined
+      // Sanitiza payload: campos de tarifas e taxa fixa em branco não causam erro de undefined
       const payload: Partial<Cliente> = { ...formData };
       payload.name = (formData.name || '').trim();
       payload.cpfCnpj = formData.cpfCnpj?.trim() || '';
@@ -245,6 +249,19 @@ export const ClientesView: React.FC<ClientesViewProps> = ({
         payload.customCoelbaTariff = coelbaVal;
       } else {
         delete payload.customCoelbaTariff;
+      }
+
+      const fixedFeeVal =
+        payload.fixedFee !== undefined &&
+        payload.fixedFee !== null &&
+        (payload.fixedFee as any) !== ''
+          ? Number(payload.fixedFee)
+          : null;
+
+      if (fixedFeeVal !== null && !isNaN(fixedFeeVal) && fixedFeeVal > 0) {
+        payload.fixedFee = fixedFeeVal;
+      } else {
+        delete payload.fixedFee;
       }
 
       // Remove quaisquer propriedades que tenham ficado como undefined
@@ -414,7 +431,16 @@ export const ClientesView: React.FC<ClientesViewProps> = ({
                         </div>
                       </td>
                       <td className="py-3 px-4 font-medium text-gray-700">{cli.cpfCnpj}</td>
-                      <td className="py-3 px-4 font-mono font-bold text-gray-800">{cli.clientCodeCoelba || '-'}</td>
+                      <td className="py-3 px-4 font-mono font-bold text-gray-800">
+                        <div>{cli.clientCodeCoelba || '-'}</div>
+                        {cli.fixedFee && cli.fixedFee > 0 ? (
+                          <div className="mt-0.5">
+                            <span className="inline-flex items-center text-[9px] font-bold text-violet-700 bg-violet-50 px-1.5 py-0.5 rounded border border-violet-200">
+                              🏷️ Taxa Fixa: R$ {cli.fixedFee.toFixed(2)}
+                            </span>
+                          </div>
+                        ) : null}
+                      </td>
                       <td className="py-3 px-4 text-gray-700">
                         {cli.city ? `${cli.city}/${cli.state}` : '-'}
                       </td>
@@ -511,31 +537,14 @@ export const ClientesView: React.FC<ClientesViewProps> = ({
         </div>
 
         {/* Pagination Footer */}
-        <div className="flex items-center justify-between p-4 border-t border-gray-100 bg-gray-50/50 text-xs text-gray-600">
-          <span>
-            Mostrando {Math.min(filteredClientes.length, (page - 1) * itemsPerPage + 1)} a{' '}
-            {Math.min(filteredClientes.length, page * itemsPerPage)} de {filteredClientes.length} clientes
-          </span>
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={page === 1}
-              className="px-2.5 py-1 rounded-lg border border-gray-200 bg-white disabled:opacity-40 text-xs font-semibold"
-            >
-              Anterior
-            </button>
-            <span className="px-2 font-bold text-gray-900">
-              {page} / {totalPages}
-            </span>
-            <button
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              disabled={page === totalPages}
-              className="px-2.5 py-1 rounded-lg border border-gray-200 bg-white disabled:opacity-40 text-xs font-semibold"
-            >
-              Próxima
-            </button>
-          </div>
-        </div>
+        <Pagination
+          currentPage={safePage}
+          totalItems={filteredClientes.length}
+          itemsPerPage={itemsPerPage}
+          onPageChange={setPage}
+          onItemsPerPageChange={setItemsPerPage}
+          itemLabel="clientes"
+        />
       </div>
 
       {/* Modal Cadastro / Edição de Cliente */}
@@ -798,6 +807,37 @@ export const ClientesView: React.FC<ClientesViewProps> = ({
                         : `Em branco: usará padrão geral (R$ ${formatCurrency(tariffs?.coelbaReferenceTariff ?? 1.21, false, 4)}/kWh)`}
                     </span>
                   </div>
+
+                  {/* Cadastro de Taxa Fixa (Custo Interno do Administrador) */}
+                  <div className="sm:col-span-2 rounded-xl border border-violet-200 bg-violet-50/50 p-3">
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block font-bold text-violet-950">
+                        Cadastro de Taxa Fixa (R$)
+                      </label>
+                      <span className="text-[10px] bg-violet-100 text-violet-800 font-bold px-2 py-0.5 rounded border border-violet-200">
+                        Controle do Administrador
+                      </span>
+                    </div>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={formData.fixedFee ?? ''}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          fixedFee: e.target.value === '' ? undefined : Number(e.target.value),
+                        })
+                      }
+                      placeholder="ex: 50.00 (opcional)"
+                      className="w-full rounded-lg border border-violet-300 p-2 text-gray-900 bg-white font-mono font-bold"
+                    />
+                    <span className="text-[10px] text-violet-700 mt-1 block">
+                      {formData.fixedFee && formData.fixedFee > 0
+                        ? `Taxa Fixa: R$ ${Number(formData.fixedFee).toFixed(2)}/mês. Este valor será associado às faturas emitidas para que o administrador saiba que pagou esta taxa. Ela NÃO interfere no valor a pagar do cliente e não aparece na fatura do cliente.`
+                        : 'Em branco ou zero: nenhuma taxa fixa associada às faturas deste cliente.'}
+                    </span>
+                  </div>
                 </div>
               </div>
 
@@ -939,6 +979,11 @@ export const ClientesView: React.FC<ClientesViewProps> = ({
                       ? `R$ ${formatCurrency(detailCliente.customCoelbaTariff, false, 4)}/kWh (Personalizada)`
                       : `R$ ${formatCurrency(tariffs?.coelbaReferenceTariff ?? 1.21, false, 4)}/kWh (Padrão Geral)`}
                   </span>
+                  {detailCliente.fixedFee && detailCliente.fixedFee > 0 ? (
+                    <span className="font-semibold text-violet-800 bg-violet-50 px-2 py-0.5 rounded border border-violet-200">
+                      🏷️ Taxa Fixa Adm: R$ {detailCliente.fixedFee.toFixed(2)}/mês
+                    </span>
+                  ) : null}
                 </div>
               </div>
               <button onClick={() => setDetailCliente(null)} className="p-1 text-gray-400 hover:text-gray-600">

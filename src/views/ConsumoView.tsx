@@ -27,6 +27,7 @@ import {
 import { logAuditEvent } from '../lib/auditService';
 import { useAuth } from '../hooks/useAuth';
 import { SearchableClientSelect } from '../components/SearchableClientSelect';
+import { Pagination } from '../components/Pagination';
 
 interface ConsumoViewProps {
   clientes: Cliente[];
@@ -57,6 +58,8 @@ export const ConsumoView: React.FC<ConsumoViewProps> = ({
   const [meterSwapModalOpen, setMeterSwapModalOpen] = useState(false);
   const [selectedClientId, setSelectedClientId] = useState('');
   const [filterClientId, setFilterClientId] = useState('all');
+  const [page, setPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
 
   // Reading form state
   const [referenceMonth, setReferenceMonth] = useState(currentMonth);
@@ -322,6 +325,12 @@ export const ConsumoView: React.FC<ConsumoViewProps> = ({
       return b.referenceMonth - a.referenceMonth;
     });
 
+  const safeReadingsPage = Math.min(page, Math.max(1, Math.ceil(filteredReadings.length / itemsPerPage)));
+  const paginatedReadings = filteredReadings.slice(
+    (safeReadingsPage - 1) * itemsPerPage,
+    safeReadingsPage * itemsPerPage
+  );
+
   return (
     <div className="space-y-6">
       {/* Informative Header Callout: The Core Rule */}
@@ -385,7 +394,10 @@ export const ConsumoView: React.FC<ConsumoViewProps> = ({
             <SearchableClientSelect
               clientes={clientes}
               selectedClientId={filterClientId}
-              onSelectClient={(cId) => setFilterClientId(cId)}
+              onSelectClient={(cId) => {
+                setFilterClientId(cId);
+                setPage(1);
+              }}
               allowAllOption={true}
               allOptionLabel="⚡ Todos os Clientes"
               placeholder="🔍 Digite para filtrar cliente..."
@@ -415,14 +427,14 @@ export const ConsumoView: React.FC<ConsumoViewProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {filteredReadings.length === 0 ? (
+              {paginatedReadings.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="py-12 text-center text-gray-400">
                     Nenhuma leitura encontrada. Clique em "Lançar Leitura" para iniciar.
                   </td>
                 </tr>
               ) : (
-                filteredReadings.map((lei) => {
+                paginatedReadings.map((lei) => {
                   const client = clientes.find((c) => c.id === lei.clientId);
                   return (
                     <tr key={lei.id} className="hover:bg-gray-50/60 transition">
@@ -508,6 +520,14 @@ export const ConsumoView: React.FC<ConsumoViewProps> = ({
             </tbody>
           </table>
         </div>
+        <Pagination
+          currentPage={safeReadingsPage}
+          totalItems={filteredReadings.length}
+          itemsPerPage={itemsPerPage}
+          onPageChange={setPage}
+          onItemsPerPageChange={setItemsPerPage}
+          itemLabel="leituras"
+        />
       </div>
 
       {/* Modal Lançar Leitura */}

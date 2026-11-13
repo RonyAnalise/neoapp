@@ -7,6 +7,7 @@ import {
   formatReferencePeriod,
   getMonthName,
 } from '../lib/calculations';
+import { Pagination } from '../components/Pagination';
 
 interface HistoricoConsumoViewProps {
   clientes: Cliente[];
@@ -24,6 +25,8 @@ export const HistoricoConsumoView: React.FC<HistoricoConsumoViewProps> = ({
   const currentYear = new Date().getFullYear();
   const [selectedClientId, setSelectedClientId] = useState('all');
   const [selectedYear, setSelectedYear] = useState(currentYear);
+  const [page, setPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
 
   // Filter invoices for historic presentation
   const validInvoices = faturas
@@ -57,6 +60,12 @@ export const HistoricoConsumoView: React.FC<HistoricoConsumoViewProps> = ({
   const totalYearConsumption = monthlyData.reduce((acc, m) => acc + m.consumption, 0);
   const totalYearSavings = monthlyData.reduce((acc, m) => acc + m.savings, 0);
 
+  const safeHistoryPage = Math.min(page, Math.max(1, Math.ceil(validInvoices.length / itemsPerPage)));
+  const paginatedInvoices = validInvoices.slice(
+    (safeHistoryPage - 1) * itemsPerPage,
+    safeHistoryPage * itemsPerPage
+  );
+
   return (
     <div className="space-y-6">
       {/* Filter Header */}
@@ -66,7 +75,10 @@ export const HistoricoConsumoView: React.FC<HistoricoConsumoViewProps> = ({
             <span className="text-xs font-bold text-gray-700">Cliente:</span>
             <select
               value={selectedClientId}
-              onChange={(e) => setSelectedClientId(e.target.value)}
+              onChange={(e) => {
+                setSelectedClientId(e.target.value);
+                setPage(1);
+              }}
               className="rounded-xl border border-gray-300 bg-gray-50 px-3 py-1.5 text-xs font-semibold text-gray-900 focus:border-emerald-600 focus:outline-none"
             >
               <option value="all">Visão Consolidada (Todos os Clientes)</option>
@@ -82,7 +94,10 @@ export const HistoricoConsumoView: React.FC<HistoricoConsumoViewProps> = ({
             <span className="text-xs font-bold text-gray-700">Ano:</span>
             <select
               value={selectedYear}
-              onChange={(e) => setSelectedYear(Number(e.target.value))}
+              onChange={(e) => {
+                setSelectedYear(Number(e.target.value));
+                setPage(1);
+              }}
               className="rounded-xl border border-gray-300 bg-gray-50 px-3 py-1.5 text-xs font-semibold text-gray-900 focus:border-emerald-600 focus:outline-none"
             >
               {[currentYear - 2, currentYear - 1, currentYear, currentYear + 1].map((y) => (
@@ -159,14 +174,14 @@ export const HistoricoConsumoView: React.FC<HistoricoConsumoViewProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {validInvoices.length === 0 ? (
+              {paginatedInvoices.length === 0 ? (
                 <tr>
                   <td colSpan={10} className="py-12 text-center text-gray-400">
                     Nenhum registro histórico de consumo para o período selecionado.
                   </td>
                 </tr>
               ) : (
-                validInvoices.map((inv) => (
+                paginatedInvoices.map((inv) => (
                   <tr key={inv.id} className="hover:bg-gray-50/60 transition">
                     <td className="py-3 px-4 font-bold text-gray-900">
                       {formatReferencePeriod(inv.referenceMonth, inv.referenceYear)}
@@ -215,6 +230,14 @@ export const HistoricoConsumoView: React.FC<HistoricoConsumoViewProps> = ({
             </tbody>
           </table>
         </div>
+        <Pagination
+          currentPage={safeHistoryPage}
+          totalItems={validInvoices.length}
+          itemsPerPage={itemsPerPage}
+          onPageChange={setPage}
+          onItemsPerPageChange={setItemsPerPage}
+          itemLabel="registros"
+        />
       </div>
     </div>
   );

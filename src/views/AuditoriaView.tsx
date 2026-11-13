@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { ClipboardList, Search, Shield, Eye, Calendar, User, FileText } from 'lucide-react';
 import { AuditoriaLog } from '../types';
 import { formatDateBr } from '../lib/calculations';
+import { Pagination } from '../components/Pagination';
 
 interface AuditoriaViewProps {
   logs: AuditoriaLog[];
@@ -10,6 +11,8 @@ interface AuditoriaViewProps {
 export const AuditoriaView: React.FC<AuditoriaViewProps> = ({ logs }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedLog, setSelectedLog] = useState<AuditoriaLog | null>(null);
+  const [page, setPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
 
   const filteredLogs = logs
     .filter((l) => {
@@ -23,6 +26,12 @@ export const AuditoriaView: React.FC<AuditoriaViewProps> = ({ logs }) => {
       );
     })
     .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+  const safeLogsPage = Math.min(page, Math.max(1, Math.ceil(filteredLogs.length / itemsPerPage)));
+  const paginatedLogs = filteredLogs.slice(
+    (safeLogsPage - 1) * itemsPerPage,
+    safeLogsPage * itemsPerPage
+  );
 
   const getBadgeStyle = (op: string) => {
     switch (op) {
@@ -87,7 +96,10 @@ export const AuditoriaView: React.FC<AuditoriaViewProps> = ({ logs }) => {
           <input
             type="text"
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={(e) => {
+              setSearchTerm(e.target.value);
+              setPage(1);
+            }}
             placeholder="Buscar por operação, responsável ou documento..."
             className="w-full sm:w-80 rounded-xl border border-gray-300 p-2 text-xs text-gray-900 focus:border-emerald-600 focus:outline-none"
           />
@@ -105,14 +117,14 @@ export const AuditoriaView: React.FC<AuditoriaViewProps> = ({ logs }) => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {filteredLogs.length === 0 ? (
+              {paginatedLogs.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="py-10 text-center text-gray-400">
                     Nenhum registro de auditoria encontrado.
                   </td>
                 </tr>
               ) : (
-                filteredLogs.map((log) => (
+                paginatedLogs.map((log) => (
                   <tr key={log.id} className="hover:bg-gray-50/60">
                     <td className="py-3 px-4 text-gray-700 whitespace-nowrap font-mono text-[11px]">
                       {new Date(log.timestamp).toLocaleString('pt-BR')}
@@ -141,6 +153,14 @@ export const AuditoriaView: React.FC<AuditoriaViewProps> = ({ logs }) => {
               )}
             </tbody>
           </table>
+          <Pagination
+            currentPage={safeLogsPage}
+            totalItems={filteredLogs.length}
+            itemsPerPage={itemsPerPage}
+            onPageChange={setPage}
+            onItemsPerPageChange={setItemsPerPage}
+            itemLabel="registros"
+          />
         </div>
       </div>
 
