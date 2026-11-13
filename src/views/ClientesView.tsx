@@ -433,13 +433,6 @@ export const ClientesView: React.FC<ClientesViewProps> = ({
                       <td className="py-3 px-4 font-medium text-gray-700">{cli.cpfCnpj}</td>
                       <td className="py-3 px-4 font-mono font-bold text-gray-800">
                         <div>{cli.clientCodeCoelba || '-'}</div>
-                        {cli.fixedFee && cli.fixedFee > 0 ? (
-                          <div className="mt-0.5">
-                            <span className="inline-flex items-center text-[9px] font-bold text-violet-700 bg-violet-50 px-1.5 py-0.5 rounded border border-violet-200">
-                              🏷️ Taxa Fixa: R$ {cli.fixedFee.toFixed(2)}
-                            </span>
-                          </div>
-                        ) : null}
                       </td>
                       <td className="py-3 px-4 text-gray-700">
                         {cli.city ? `${cli.city}/${cli.state}` : '-'}
@@ -807,37 +800,6 @@ export const ClientesView: React.FC<ClientesViewProps> = ({
                         : `Em branco: usará padrão geral (R$ ${formatCurrency(tariffs?.coelbaReferenceTariff ?? 1.21, false, 4)}/kWh)`}
                     </span>
                   </div>
-
-                  {/* Cadastro de Taxa Fixa (Custo Interno do Administrador) */}
-                  <div className="sm:col-span-2 rounded-xl border border-violet-200 bg-violet-50/50 p-3">
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="block font-bold text-violet-950">
-                        Cadastro de Taxa Fixa (R$)
-                      </label>
-                      <span className="text-[10px] bg-violet-100 text-violet-800 font-bold px-2 py-0.5 rounded border border-violet-200">
-                        Controle do Administrador
-                      </span>
-                    </div>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={formData.fixedFee ?? ''}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          fixedFee: e.target.value === '' ? undefined : Number(e.target.value),
-                        })
-                      }
-                      placeholder="ex: 50.00 (opcional)"
-                      className="w-full rounded-lg border border-violet-300 p-2 text-gray-900 bg-white font-mono font-bold"
-                    />
-                    <span className="text-[10px] text-violet-700 mt-1 block">
-                      {formData.fixedFee && formData.fixedFee > 0
-                        ? `Taxa Fixa: R$ ${Number(formData.fixedFee).toFixed(2)}/mês. Este valor será associado às faturas emitidas para que o administrador saiba que pagou esta taxa. Ela NÃO interfere no valor a pagar do cliente e não aparece na fatura do cliente.`
-                        : 'Em branco ou zero: nenhuma taxa fixa associada às faturas deste cliente.'}
-                    </span>
-                  </div>
                 </div>
               </div>
 
@@ -979,11 +941,6 @@ export const ClientesView: React.FC<ClientesViewProps> = ({
                       ? `R$ ${formatCurrency(detailCliente.customCoelbaTariff, false, 4)}/kWh (Personalizada)`
                       : `R$ ${formatCurrency(tariffs?.coelbaReferenceTariff ?? 1.21, false, 4)}/kWh (Padrão Geral)`}
                   </span>
-                  {detailCliente.fixedFee && detailCliente.fixedFee > 0 ? (
-                    <span className="font-semibold text-violet-800 bg-violet-50 px-2 py-0.5 rounded border border-violet-200">
-                      🏷️ Taxa Fixa Adm: R$ {detailCliente.fixedFee.toFixed(2)}/mês
-                    </span>
-                  ) : null}
                 </div>
               </div>
               <button onClick={() => setDetailCliente(null)} className="p-1 text-gray-400 hover:text-gray-600">

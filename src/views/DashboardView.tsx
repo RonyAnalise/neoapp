@@ -479,8 +479,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       </div>
 
-      {/* Grid de KPIs Principais (incluindo Faturamento, Taxas Fixas Adm e Valor Líquido) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 sm:gap-4">
+      {/* Grid de KPIs Principais */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         {/* Total Clientes */}
         <div className="bg-white rounded-2xl p-4 sm:p-5 border border-gray-200/80 shadow-xs flex items-center justify-between">
           <div>
@@ -528,42 +528,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
           <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
             <DollarSign className="w-5 h-5 sm:w-6 sm:h-6" />
-          </div>
-        </div>
-
-        {/* Total de Taxas Fixas Pagas pelo Adm */}
-        <div className="bg-white rounded-2xl p-4 sm:p-5 border border-violet-200 bg-violet-50/20 shadow-xs flex items-center justify-between">
-          <div>
-            <p className="text-[11px] font-bold text-violet-800 uppercase tracking-wider">
-              {isAllMonths ? 'Taxas Fixas (Ano)' : 'Total Taxas Fixas (Adm)'}
-            </p>
-            <h3 className="text-xl sm:text-2xl font-black text-violet-900 mt-1">
-              {formatCurrency(totalFixedFeesMonth)}
-            </h3>
-            <span className="text-[10px] sm:text-[11px] text-violet-700 font-medium block mt-0.5">
-              Somatório pago pelo adm
-            </span>
-          </div>
-          <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-violet-100 text-violet-800 flex items-center justify-center shrink-0">
-            <Receipt className="w-5 h-5 sm:w-6 sm:h-6" />
-          </div>
-        </div>
-
-        {/* Card Valor Líquido: Faturamento Total - Total de Taxas */}
-        <div className="bg-gradient-to-br from-emerald-50 via-white to-emerald-100/40 rounded-2xl p-4 sm:p-5 border-2 border-emerald-400 shadow-xs flex items-center justify-between">
-          <div>
-            <p className="text-[11px] font-black text-emerald-950 uppercase tracking-wider">
-              {isAllMonths ? 'Valor Líquido (Ano)' : 'Valor Líquido'}
-            </p>
-            <h3 className="text-xl sm:text-2xl font-black text-emerald-700 mt-1">
-              {formatCurrency(netRevenueMonth)}
-            </h3>
-            <span className="text-[10px] sm:text-[11px] text-emerald-800 font-bold block mt-0.5">
-              Faturamento - Taxas
-            </span>
-          </div>
-          <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-emerald-700 text-white flex items-center justify-center shadow-xs shrink-0">
-            <Wallet className="w-5 h-5 sm:w-6 sm:h-6" />
           </div>
         </div>
 
